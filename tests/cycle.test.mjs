@@ -40,5 +40,18 @@ pub = CY.publicView([{ start: d(2) }], { periodDays: 4 }, T);
 ok('partner: period day + auto-end use her length', CY.publicNow(pub, T).day === 3 && CY.publicNow(pub, CY.addDays(T, 2)).active === false);
 ok('partner: starting soon from her soon day', CY.publicNow(CY.publicView([{ start: d(25) }], {}, T), T).soon === true);
 ok('null shared view is safe', CY.publicNow(null, T).active === false);
+// import codes (made-up dates)
+const fake = [{ start: '2025-03-03', end: '2025-03-07' }, { start: '2025-03-30', end: '2025-04-02' }, { start: '2025-04-24', end: '2025-04-29' }];
+const code = CY.encodeImport(fake);
+ok('encode → compact code', code === 'PL1:250303.5-250330.4-250424.6', code);
+ok('parse round-trips', JSON.stringify(CY.parseImport(code, '2025-05-10').entries) === JSON.stringify(fake));
+ok('parse accepts a pasted link with #import=', CY.parseImport('https://x/porch-light/#import=' + code, '2025-05-10').entries.length === 3);
+ok('parse accepts "YYYY-MM-DD N" lines', CY.parseImport('2025-03-03 5\n2025-03-30, 4', '2025-05-10').entries.length === 2);
+ok('parse rejects bad dates / future / silly lengths', (() => { const r = CY.parseImport('PL1:250231.5-990101.5-250303.30-250303.5', '2025-05-10'); return r.entries.length === 1 && r.bad.length === 3; })());
+const plan = CY.importPlan([{ start: '2025-03-30', end: '2025-04-05' }, { start: '2025-02-01' }], { periodDays: 7, soonDay: 30 }, CY.parseImport(code, '2025-05-10').entries);
+ok('import merges: same start replaced, others kept, sorted', JSON.stringify(plan.merged.map(e => e.start + '/' + (e.end || ''))) === JSON.stringify(['2025-02-01/', '2025-03-03/2025-03-07', '2025-03-30/2025-04-02', '2025-04-24/2025-04-29']));
+ok('import sets typical length (median 5), average on, soon = avg − 3', plan.cycle.periodDays === 5 && plan.cycle.cycleAuto === true && plan.avgCycle === 27 && plan.cycle.soonDay === 24, JSON.stringify([plan.cycle, plan.avgCycle]));
+ok('fertile window rolls to the next cycle once this one has passed', (() => { const f = CY.summary([{ start: d(24) }], {}, T).fertile; return f.ovulation === CY.addDays(d(24), 28 + 14); })());
+
 console.log(`\nCYCLE: ${res.filter(Boolean).length}/${res.length} passed`);
 process.exit(res.every(Boolean) ? 0 : 1);

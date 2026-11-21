@@ -169,6 +169,13 @@
           <div class="set-t">History</div>
           <div class="hist" id="periodHist"></div>
           <button class="btn small ghost" id="btnAddPast">+ Add a past period</button>
+          <button class="btn small ghost" id="btnImport">Import history</button>
+          <div class="import hidden" id="importBox">
+            <div class="hint">Paste an import code (starts with PL1:). It stays on this phone.</div>
+            <textarea id="importCode" class="input" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="PL1:…"></textarea>
+            <div class="import-prev hidden" id="importPrev"></div>
+            <div class="import-btns"><button class="btn small" id="btnImportPreview">Preview</button><button class="btn small primary hidden" id="btnImportGo">Import</button><button class="btn small ghost" id="btnImportCancel">Cancel</button></div>
+          </div>
           <div class="hint">Estimates use about 14 days before your next expected start. They're estimates, not birth control.</div>
         </div>
       </div>

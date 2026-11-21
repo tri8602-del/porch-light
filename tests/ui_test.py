@@ -279,6 +279,29 @@ async def main():
         await L.click('#btnSettings'); await L.wait_for_selector('#sheet:not(.hidden)')
         await L.click('#setShareFertile'); await L.wait_for_timeout(400); await L.click('#btnCloseSettings')
 
+        # ---- 5d. One-time history import (paste a code in Settings) — made-up dates ----
+        imp = [(day(12), 4)] + [(day(12 + 26 * k), 5 if k != 3 else 6) for k in range(1, 6)]
+        code = 'PL1:' + '-'.join(st[2:].replace('-', '') + '.' + str(n) for st, n in sorted(imp))
+        await L.click('#btnSettings'); await L.wait_for_selector('#sheet:not(.hidden)')
+        await L.click('#btnImport'); await L.fill('#importCode', code); await L.click('#btnImportPreview')
+        prev = await L.text_content('#importPrev')
+        ok('import preview lists periods, average cycle, replaced count', '6 periods' in prev and 'Average cycle 26 days' in prev and '1 already in your history' in prev, prev[:160])
+        await L.evaluate("document.getElementById('importBox').scrollIntoView({block:'center'})")
+        await shot(L, '13c-owner-import-preview.png')
+        await L.click('#btnImportGo'); await L.wait_for_selector('#importBox.hidden', state='attached'); await L.wait_for_timeout(500)
+        pv = admin_get(f'plCouples/{cid}/private/{luid}')['fields']
+        starts = [v['mapValue']['fields']['start']['stringValue'] for v in pv['periodHistory']['arrayValue']['values']]
+        cyc = pv['cycle']['mapValue']['fields']
+        ok('import merged without duplicates (same start replaced)', starts == sorted(st for st, _ in imp) and len(starts) == 6, json.dumps(starts))
+        ok('import set length 5, average on, starting-soon day 23', cyc['periodDays']['integerValue'] == '5' and cyc['cycleAuto']['booleanValue'] is True and cyc['soonDay']['integerValue'] == '23', json.dumps({k: list(v.values())[0] for k, v in cyc.items()}))
+        ok('settings show 26-day average after import', '26-day average' in await L.text_content('#setPredict'), await L.text_content('#setPredict'))
+        await L.click('#btnCloseSettings')
+        # link form: #import=… pre-fills the box when the app opens with it
+        await L.goto(BASE + '?emu=1#import=' + code)
+        await L.wait_for_selector('#importBox:not(.hidden)', timeout=15000)
+        ok('#import= link opens Settings with the code pre-filled + preview', (await L.input_value('#importCode')) == code and '6 periods' in await L.text_content('#importPrev'))
+        await L.click('#btnImportCancel'); await L.click('#btnCloseSettings')
+
         await M.click('#btnSettings'); await M.wait_for_selector('#sheet:not(.hidden)')
         ok('partner settings: no period section', not await visible(M, '#setPeriodGroup'))
         ok('partner settings: notifications show on', 'on' in await M.text_content('#notifyState'))

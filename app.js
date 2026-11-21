@@ -1,6 +1,6 @@
 /* Porch Light — a private two-person status app. */
 'use strict';
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const CY = window.PLCycle;
 const CFG = window.PL_CONFIG || {};
 const LEVELS = [null,
@@ -384,6 +384,52 @@ $('btnPeriod').onclick = async () => {
 };
 $('btnAddPast').onclick = () => openPeriodSheet('add');
 
+// ---------- one-time history import (paste a code; nothing leaves the phone except her own private doc) ----------
+let importParsed = null;
+function resetImport() { importParsed = null; $('importPrev').classList.add('hidden'); $('btnImportGo').classList.add('hidden'); }
+$('btnImport').onclick = () => { $('importBox').classList.toggle('hidden'); resetImport(); if (!$('importBox').classList.contains('hidden')) $('importCode').focus(); };
+$('btnImportCancel').onclick = () => { $('importBox').classList.add('hidden'); $('importCode').value = ''; resetImport(); };
+$('importCode').addEventListener('input', resetImport);
+$('btnImportPreview').onclick = () => {
+  const r = CY.parseImport($('importCode').value, today());
+  const prev = $('importPrev'); prev.classList.remove('hidden');
+  if (!r.entries.length) { prev.innerHTML = "That code didn't have any periods in it. Check that you pasted all of it."; return; }
+  const plan = CY.importPlan((S.priv || {}).periodHistory, (S.priv || {}).cycle, r.entries);
+  const existing = CY.clean((S.priv || {}).periodHistory).map(e => e.start);
+  const replaced = r.entries.filter(e => existing.includes(e.start)).length;
+  importParsed = { r, plan };
+  prev.innerHTML = `<b>${r.entries.length} periods</b> · ${fmtDayY(r.entries[0].start)} – ${fmtDayY(r.entries[r.entries.length - 1].start)}<br>`
+    + `Average cycle ${plan.avgCycle} days · typical period ${plan.typicalLength} days`
+    + (replaced ? `<br>${replaced} already in your history (same start date) will be updated` : '')
+    + (r.bad.length ? `<br><span class="err">${r.bad.length} entr${r.bad.length > 1 ? 'ies' : 'y'} skipped</span>` : '')
+    + '<div style="margin-top:6px">' + r.entries.slice().reverse().map(e => `<div class="h"><span>${fmtDayY(e.start)}</span><span class="muted">${CY.diff(e.start, e.end) + 1} days</span></div>`).join('') + '</div>'
+    + `<div class="hint">Will also set: unavailable ${plan.cycle.periodDays} days · cycle length from your average · "starting soon" from day ${plan.cycle.soonDay}. You can change these anytime.</div>`;
+  $('btnImportGo').classList.remove('hidden');
+};
+$('btnImportGo').onclick = async () => {
+  if (!importParsed) return;
+  const { plan } = importParsed;
+  try {
+    await savePriv({ periodHistory: plan.merged, cycle: plan.cycle });
+    $('importBox').classList.add('hidden'); $('importCode').value = ''; resetImport();
+    if (location.hash.startsWith('#import=')) history.replaceState(null, '', location.pathname + location.search);
+    fillSettings(true); toast('History imported ✓');
+  } catch { toast("Couldn't import — check your connection"); }
+};
+function fmtDayY(s) { return parseDay(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+// Optional: a link ending in #import=... pre-fills the box (the code lives only in the URL hash, never sent to a server).
+let importHashDone = '';
+function maybeOpenImportFromHash() {
+  if (!location.hash.startsWith('#import=') || importHashDone === location.hash) return;
+  if (!S.couple || !S.privLoaded || $('s-home').classList.contains('hidden')) return;
+  const R = roles(); if (R.c.tracker !== R.uid) return;
+  importHashDone = location.hash;
+  fillSettings(true); $('sheet').classList.remove('hidden');
+  $('importBox').classList.remove('hidden'); $('importCode').value = decodeURIComponent(location.hash.slice(8));
+  $('btnImportPreview').click();
+  setTimeout(() => $('importBox').scrollIntoView({ block: 'center' }), 50);
+}
+
 function render() {
   if (!S.couple || !S.user) return;
   const R = roles();
@@ -470,7 +516,9 @@ function render() {
   const next = [untilMs(me), pp ? untilMs(pp) : null].filter(t => t && t > Date.now()).sort((a, b) => a - b)[0];
   clearTimeout(S.untilTimer); if (next) S.untilTimer = setTimeout(render, Math.min(next - Date.now() + 300, 2 ** 31 - 1));
   if (!$('sheet').classList.contains('hidden')) fillSettings(false);
+  maybeOpenImportFromHash();
 }
+window.addEventListener('hashchange', () => maybeOpenImportFromHash());
 
 // ---------- settings ----------
 function fillSettings(all = true) {
