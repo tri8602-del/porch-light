@@ -1,0 +1,91 @@
+rules_version = '2';
+// Porch Light — Firestore rules.
+// Everything for this app lives under plCouples/ and plInvites/. If you add these blocks to a
+// project that other apps share, paste only the two `match` blocks inside your existing
+// `match /databases/{database}/documents { ... }` and make sure no broad wildcard rule
+// (for example `match /{document=**} { allow read: if request.auth != null; }`) exists, because
+// Firestore ORs rules together and a wildcard would open this data to any signed-in user.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------- Porch Light ----------------
+    match /plCouples/{cid} {
+      function signedIn() { return request.auth != null; }
+      function me() { return request.auth.uid; }
+      function couple() { return get(/databases/$(database)/documents/plCouples/$(cid)).data; }
+      function isMember() { return signedIn() && me() in couple().members; }
+      function inviteFor(code) { return get(/databases/$(database)/documents/plInvites/$(code)).data; }
+
+      // Members can read their couple doc; list queries only return docs you belong to.
+      allow get, list: if signedIn() && me() in resource.data.members;
+
+      // Create: the creator is the only member and the owner.
+      allow create: if signedIn()
+        && request.resource.data.members == [me()]
+        && request.resource.data.owner == me()
+        && request.resource.data.keys().hasOnly(['members','owner','names','tracker','createdAt','joinCode'])
+        && request.resource.data.names is map && request.resource.data.names.size() <= 2;
+
+      // Join: exactly one new uid added to a one-member couple, using a live invite for this couple.
+      allow update: if signedIn()
+        && resource.data.members.size() == 1
+        && !(me() in resource.data.members)
+        && request.resource.data.members == [resource.data.members[0], me()]
+        && request.resource.data.owner == resource.data.owner
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members','joinCode'])
+        && request.resource.data.joinCode is string
+        && inviteFor(request.resource.data.joinCode).cid == cid
+        && inviteFor(request.resource.data.joinCode).expires > request.time;
+
+      // Members may change names/tracker; owner may also unpair the partner (members back to [owner]).
+      allow update: if signedIn() && me() in resource.data.members
+        && request.resource.data.owner == resource.data.owner
+        && (
+          (request.resource.data.members == resource.data.members
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['names','tracker']))
+          || (me() == resource.data.owner
+            && request.resource.data.members == [resource.data.owner]
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members','joinCode']))
+        );
+
+      allow delete: if signedIn() && me() == resource.data.owner;
+
+      // Each person's own status. Both can read; only you can write yours.
+      match /people/{uid} {
+        allow read: if isMember();
+        allow create, update: if isMember() && me() == uid
+          && request.resource.data.keys().hasOnly(['level','note','at','checkinOn','checkinTime','tz',
+               'period','periodHistory','staleHours','noteAt'])
+          && (!('level' in request.resource.data) || request.resource.data.level == null
+              || (request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5))
+          && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 140));
+        allow delete: if isMember() && me() == uid;
+      }
+
+      // Push subscriptions: private to their owner (the sender uses a service account).
+      match /subs/{uid} {
+        allow read, write: if isMember() && me() == uid;
+      }
+
+      // Server bookkeeping (last check-in sent, last match sent). Clients cannot touch it.
+      match /server/{doc} {
+        allow read, write: if false;
+      }
+    }
+
+    match /plInvites/{code} {
+      // Knowing the code lets a signed-in person read that one invite; no listing.
+      allow get: if request.auth != null;
+      allow list: if false;
+      allow create: if request.auth != null
+        && get(/databases/$(database)/documents/plCouples/$(request.resource.data.cid)).data.owner == request.auth.uid
+        && request.resource.data.keys().hasOnly(['cid','expires','createdAt'])
+        && request.resource.data.expires is timestamp
+        && request.resource.data.expires < request.time + duration.value(8, 'd');
+      allow delete: if request.auth != null
+        && request.auth.uid in get(/databases/$(database)/documents/plCouples/$(resource.data.cid)).data.members;
+      allow update: if false;
+    }
+    // -------------- end Porch Light --------------
+  }
+}

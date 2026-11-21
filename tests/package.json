@@ -1,0 +1,15 @@
+{
+  "name": "porchlight-tests",
+  "scripts": {
+    "test:rules": "node rules.test.mjs",
+    "test:sender": "node sender.test.mjs",
+    "test:ui": "python3 ui_test.py"
+  },
+  "type": "module",
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^10.14.1",
+    "http_ece": "^1.2.1"
+  },
+  "private": true
+}
