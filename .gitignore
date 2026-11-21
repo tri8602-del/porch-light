@@ -1,0 +1,10 @@
+node_modules/
+tests/key.pem
+tests/cert.pem
+.emu.log
+.npm-*.log
+*-debug.log
+shots/
+.vapid.json
+.http.log
+icon-src/

@@ -1,0 +1,30 @@
+name: Porch Light pushes
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # GitHub may delay scheduled runs by a few minutes
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: porchlight-push
+  cancel-in-progress: false
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sender/package-lock.json
+      - run: npm ci --omit=dev
+        working-directory: sender
+      - run: node send.mjs
+        working-directory: sender
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
