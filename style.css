@@ -129,3 +129,9 @@ h1{font-size:30px;margin:10px 0 6px;font-weight:600;letter-spacing:-.015em}
 .hint{font-size:13px;color:var(--faint);margin:6px 0 2px}
 .owner-only{display:flex;gap:8px;flex-wrap:wrap;padding:10px 0 4px}
 .toast{position:fixed;left:50%;bottom:calc(var(--safe-b) + 26px);transform:translateX(-50%);background:rgba(43,45,60,.88);color:#fff;padding:10px 16px;border-radius:14px;font-size:15px;z-index:30;box-shadow:0 8px 24px rgba(0,0,0,.18);backdrop-filter:blur(8px)}
+.import{margin:10px 0 4px}
+.import textarea{font:14px/1.4 ui-monospace,Menlo,monospace;resize:vertical;margin-top:6px}
+.import-prev{font-size:14px;margin:8px 0;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.7);max-height:220px;overflow:auto}
+.import-prev .h{display:flex;justify-content:space-between;padding:3px 0}
+.import-btns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+#btnImport{margin-left:6px}

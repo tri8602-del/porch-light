@@ -52,7 +52,9 @@
       out.next = addDays(last.start, cl.len);
       out.soonFrom = addDays(last.start, cfg.soonDay - 1);
       out.soon = !current && today >= out.soonFrom && diff(out.next, today) <= 7;   // until a week late
-      const ov = addDays(out.next, -14);
+      // this cycle's estimated window; once it has passed, show the next cycle's
+      let base = out.next, ov, k = 0;
+      do { ov = addDays(base, -14); if (today <= addDays(ov, cfg.fertileAfter)) break; base = addDays(base, cl.len); } while (++k < 3);
       out.fertile = { from: addDays(ov, -cfg.fertileBefore), to: addDays(ov, cfg.fertileAfter), ovulation: ov };
       out.inFertile = !current && today >= out.fertile.from && today <= out.fertile.to;
     }
@@ -77,7 +79,34 @@
     const fertile = !active && !!pub.fertile && isDay(pub.fertile.from) && today >= pub.fertile.from && today <= pub.fertile.to;
     return { active, day: active ? diff(pub.cur.start, today) + 1 : null, soon, fertile };
   }
-  const api = { DEFAULTS, LIMITS, cfgOf, addDays, diff, clean, effEnd, activeEntry, summary, publicView, publicNow };
+  // One-time history import code: "PL1:" + entries "YYMMDD.L" (start date, length in days) joined by "-".
+  // Also accepts lines like "2026-01-13 5". The code is only ever pasted on her phone; it is not stored anywhere else.
+  function encodeImport(entries) {
+    return 'PL1:' + entries.map(e => e.start.slice(2).replace(/-/g, '') + '.' + (diff(e.start, e.end || e.start) + 1)).join('-');
+  }
+  function parseImport(code, today) {
+    const txt = String(code || '').trim().replace(/^.*#import=/, '').replace(/^PL1[:_]/i, '');
+    const out = [], bad = [];
+    const toks = txt.match(/\d{4}-\d{2}-\d{2}[\s,;:]+\d{1,2}|\d{6}\.\d{1,2}/g) || [];
+    for (const t of toks) {
+      let start, len;
+      const m1 = /^(\d{4}-\d{2}-\d{2})[\s,;:]+(\d{1,2})$/.exec(t), m2 = /^(\d{2})(\d{2})(\d{2})\.(\d{1,2})$/.exec(t);
+      if (m1) { start = m1[1]; len = +m1[2]; } else if (m2) { start = `20${m2[1]}-${m2[2]}-${m2[3]}`; len = +m2[4]; }
+      const ok = isDay(start) && addDays(start, 0) === start && len >= 1 && len <= 14 && (!today || start <= today);
+      if (ok) out.push({ start, end: addDays(start, len - 1) }); else bad.push(t);
+    }
+    return { entries: clean(out), bad };
+  }
+  function importPlan(existing, cfgIn, entries) {
+    const merged = clean([...(Array.isArray(existing) ? existing : []).filter(e => !entries.some(n => n.start === (e && e.start))), ...entries]);
+    const lens = entries.map(e => diff(e.start, e.end) + 1).sort((a, b) => a - b);
+    const median = lens.length ? lens[Math.floor((lens.length - 1) / 2)] : DEFAULTS.periodDays;
+    const base = cfgOf(cfgIn);
+    const avg = cycleLength(merged, { ...base, cycleAuto: true });
+    const cycle = cfgOf({ ...base, periodDays: median, cycleAuto: true, soonDay: avg.avg ? avg.len - 3 : base.soonDay });
+    return { merged, cycle, avgCycle: avg.len, avgFrom: avg.n, typicalLength: median };
+  }
+  const api = { encodeImport, parseImport, importPlan, DEFAULTS, LIMITS, cfgOf, addDays, diff, clean, effEnd, activeEntry, summary, publicView, publicNow };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.PLCycle = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
