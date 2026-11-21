@@ -20,6 +20,11 @@ await t('owner creates couple', assertSucceeds(setDoc(doc(L, 'plCouples/c1'), { 
 await t('cannot create couple listing someone else', assertFails(setDoc(doc(X, 'plCouples/c2'), { members: ['stranger', 'ownerA'], owner: 'stranger', names: {} })));
 await t('cannot create couple owned by someone else', assertFails(setDoc(doc(X, 'plCouples/c3'), { members: ['stranger'], owner: 'ownerA', names: {} })));
 await t('owner writes own people doc', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 5, at: serverTimestamp(), checkinOn: true, checkinTime: '19:30', tz: 'America/New_York', staleHours: 8 })));
+await t('slider value 3.65 accepted', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 3.65 }, { merge: true })));
+await t('slider value 5.5 rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 5.5 }, { merge: true })));
+await t('slider value 0.5 rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 0.5 }, { merge: true })));
+await t('text level rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 'high' }, { merge: true })));
+await t('whole-number level still accepted', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 5 }, { merge: true })));
 await t('level out of range rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 9 }, { merge: true })));
 await t('unknown field rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { secret: 1 }, { merge: true })));
 await t('stranger cannot make invite for c1', assertFails(setDoc(doc(X, 'plInvites/STRANGE1'), { cid: 'c1', expires: future() })));

@@ -59,7 +59,7 @@ service cloud.firestore {
           && (!('cyclePub' in request.resource.data) || request.resource.data.cyclePub == null || request.resource.data.cyclePub is map)
           && (!('until' in request.resource.data) || request.resource.data.until == null || request.resource.data.until is timestamp)
           && (!('level' in request.resource.data) || request.resource.data.level == null
-              || (request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5))
+              || (request.resource.data.level is number && request.resource.data.level >= 1 && request.resource.data.level <= 5))
           && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 140));
         allow delete: if isMember() && me() == uid;
       }

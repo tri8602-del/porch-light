@@ -9,7 +9,7 @@ export const LEVELS = [
   { label: 'In the mood', emoji: '😊' },
   { label: 'Come find me', emoji: '😉' },
 ];
-export const MATCH_MIN = 4;              // both at 4 or 5 = a match
+export const MATCH_MIN = 4;              // both at 'In the mood' (4.0) or higher = a match
 export const DEFAULT_STALE_HOURS = 8;
 export const DEFAULT_CHECKIN = '19:30';
 export const DEFAULT_TZ = 'America/New_York';
@@ -36,7 +36,8 @@ export function toMillis(t) {
 export function effectiveLevel(person, isTracker, nowMs) {
   if (!person) return null;
   if (isTracker && CY.publicNow(person.cyclePub, localParts(nowMs, person.tz).date).active) return 0;
-  if (!Number.isInteger(person.level)) return null;
+  // mood is a number 1.0-5.0 (slider); older saves are whole numbers
+  if (typeof person.level !== 'number' || !isFinite(person.level) || person.level < 1 || person.level > 5) return null;
   const at = toMillis(person.at);
   const staleH = Number(person.staleHours) > 0 ? Number(person.staleHours) : DEFAULT_STALE_HOURS;
   if (at == null || nowMs - at > staleH * 3600e3) return null;

@@ -113,6 +113,7 @@
             <div class="p-when" id="pWhen"></div>
           </div>
         </div>
+        <div class="mini hidden" id="pMini"><div class="mini-track"><i id="pMiniDot"></i></div></div>
         <div class="p-note hidden" id="pNote"></div>
         <div class="p-tags hidden" id="pTags"></div>
         <div class="p-wait hidden" id="pWait"></div>
@@ -122,14 +123,21 @@
 
       <div class="you">
         <div class="you-h"><span id="youTitle">How are you feeling?</span><span class="saved" id="savedTick"></span></div>
-        <div class="levels" id="levels"></div>
+        <div class="mood glass" id="mood">
+          <div class="mood-now"><img id="moodIcon" class="mood-ic" alt="" src="icons/moods/chat.webp"><div><div class="mood-label" id="moodLabel">Slide to set</div><div class="mood-sub" id="moodSub"></div></div></div>
+          <div class="slider" id="slider" role="slider" tabindex="0" aria-label="How are you feeling" aria-valuemin="1" aria-valuemax="5">
+            <div class="track"><div class="fill" id="sliderFill"></div><i style="left:0%"></i><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:100%"></i></div>
+            <div class="thumb" id="sliderThumb"></div>
+          </div>
+          <div class="anchors" id="anchors"></div>
+        </div>
         <div class="until-row hidden" id="untilRow"><span class="until-l">Good until</span><div class="chips" id="untilChips"></div></div>
-        <div class="period-note hidden" id="periodOverlay">🌸 You show as unavailable while your period is on.</div>
+        <div class="period-note hidden" id="periodOverlay"><img class="ic" src="icons/moods/drop.webp" alt=""> You show as unavailable while your period is on.</div>
         <div class="note-row hidden" id="noteRow">
           <input id="noteInput" class="input" maxlength="140" placeholder="Add a note (optional)">
           <button class="btn small" id="btnNote">Save</button>
         </div>
-        <button class="btn period hidden" id="btnPeriod">🌸 Period started</button>
+        <button class="btn period hidden" id="btnPeriod"><img class="ic" src="icons/moods/drop.webp" alt=""> <span>Period started</span></button>
       </div>
     </div>
   </section>
@@ -176,7 +184,7 @@
             <div class="import-prev hidden" id="importPrev"></div>
             <div class="import-btns"><button class="btn small" id="btnImportPreview">Preview</button><button class="btn small primary hidden" id="btnImportGo">Import</button><button class="btn small ghost" id="btnImportCancel">Cancel</button></div>
           </div>
-          <div class="hint">Estimates use about 14 days before your next expected start. They're estimates, not birth control.</div>
+          <div class="hint">The fertile window is counted from about 14 days before your next expected start.</div>
         </div>
       </div>
 
@@ -204,6 +212,24 @@
       </div>
       <button class="btn primary" id="btnPsSave">Save</button>
       <button class="btn ghost danger hidden" id="btnPsDelete">Delete this period</button>
+    </div>
+  </div>
+
+  <!-- Custom "good until" -->
+  <div id="untilSheet" class="sheet hidden" role="dialog" aria-modal="true">
+    <div class="sheet-body">
+      <div class="sheet-h"><b>Good until…</b><button class="iconbtn" id="btnUsClose" aria-label="Close">✕</button></div>
+      <div class="seg"><button id="usTabTime" class="on">At a time</button><button id="usTabDur">For a while</button></div>
+      <div class="set-group" id="usTime">
+        <label class="row"><span>Until</span><input type="time" id="usTimeInput" class="input time"></label>
+      </div>
+      <div class="set-group hidden" id="usDur">
+        <div class="quick"><button data-m="30">30 min</button><button data-m="60">1 hr</button><button data-m="120">2 hr</button><button data-m="180">3 hr</button></div>
+        <div class="row"><span>Hours</span><span class="step" id="usH"><button>−</button><span>1</span><button>+</button></span></div>
+        <div class="row"><span>Minutes</span><span class="step" id="usM"><button>−</button><span>0</span><button>+</button></span></div>
+      </div>
+      <div class="us-result" id="usResult"></div>
+      <button class="btn primary" id="btnUsSet">Set</button>
     </div>
   </div>
 

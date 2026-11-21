@@ -58,6 +58,12 @@ const justUpdated = plan(C, { L: fresh(2, 0.2), M: fresh(1, 3) }, {}, EVENING);
 ok('skip check-in if updated in last hour (but mark done)', justUpdated.pushes.map(p => p.uid).join() === 'M' && justUpdated.server.checkin.L === '2026-11-20');
 ok('time zone honored (Chicago 7:30 = later UTC)', plan(C, { L: { ...fresh(1, 3), tz: 'America/Chicago' }, M: { ...fresh(1, 3), checkinOn: false } }, {}, EVENING).pushes.length === 0);
 
+// ---- slider values (numbers between anchors) ----
+ok('in-between value kept (3.6)', effectiveLevel({ level: 3.6, at: EVENING }, false, EVENING) === 3.6);
+ok('match at 4.0 + 4.35', plan(C, { L: fresh(4.35), M: fresh(4) }, {}, NOON).pushes.filter(p => p.type === 'match').length === 2);
+ok('no match at 3.95 + 5', plan(C, { L: fresh(3.95), M: fresh(5) }, {}, NOON).pushes.filter(p => p.type === 'match').length === 0);
+ok('out-of-range value ignored', effectiveLevel({ level: 7, at: EVENING }, false, EVENING) === null && effectiveLevel({ level: '5', at: EVENING }, false, EVENING) === null);
+
 // ---- optional expiry ("until") ----
 const NINE = Date.parse('2026-11-21T02:00:00Z');   // 9:00 PM ET
 ok('until in future keeps level', effectiveLevel({ level: 4, at: EVENING, until: NINE }, false, NINE - 60e3) === 4);
