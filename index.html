@@ -111,11 +111,13 @@
           <div>
             <div class="p-label" id="pLabel">—</div>
             <div class="p-when" id="pWhen"></div>
+            <div class="p-upd hidden" id="pUpdated"></div>
           </div>
         </div>
         <div class="mini hidden" id="pMini"><div class="mini-track"><i id="pMiniDot"></i></div></div>
         <div class="p-note hidden" id="pNote"></div>
         <div class="p-tags hidden" id="pTags"></div>
+        <div class="p-ping hidden" id="pPingRow"><button class="btn small ghost" id="btnPing">Ping to update</button><span class="p-ping-msg" id="pPingMsg"></span></div>
         <div class="p-wait hidden" id="pWait"></div>
       </div>
 
@@ -124,7 +126,7 @@
       <div class="you">
         <div class="you-h"><span id="youTitle">How are you feeling?</span><span class="saved" id="savedTick"></span></div>
         <div class="mood glass" id="mood">
-          <div class="mood-now"><img id="moodIcon" class="mood-ic" alt="" src="icons/moods/chat.webp"><div><div class="mood-label" id="moodLabel">Slide to set</div><div class="mood-sub" id="moodSub"></div></div></div>
+          <div class="mood-now"><img id="moodIcon" class="mood-ic" alt="" src="icons/moods/chat.webp"><div><div class="mood-label" id="moodLabel">Slide to set</div><div class="mood-sub" id="moodSub"></div><div class="p-upd hidden" id="myUpdated"></div></div></div>
           <div class="slider" id="slider" role="slider" tabindex="0" aria-label="How are you feeling" aria-valuemin="1" aria-valuemax="5">
             <div class="track"><div class="fill" id="sliderFill"></div><i style="left:0%"></i><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:100%"></i></div>
             <div class="thumb" id="sliderThumb"></div>

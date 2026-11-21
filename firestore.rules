@@ -55,7 +55,13 @@ service cloud.firestore {
         allow read: if isMember();
         allow create, update: if isMember() && me() == uid
           && request.resource.data.keys().hasOnly(['level','note','at','checkinOn','checkinTime','tz',
-               'staleHours','noteAt','until','cyclePub'])
+               'staleHours','noteAt','until','cyclePub','pingAt'])
+          // "Ping to update": pingAt may only be set to the server's clock, at most once per 30 minutes
+          && (!('pingAt' in request.resource.data)
+              || (resource != null && 'pingAt' in resource.data && request.resource.data.pingAt == resource.data.pingAt)
+              || (request.resource.data.pingAt == request.time
+                  && (resource == null || !('pingAt' in resource.data) || resource.data.pingAt == null
+                      || request.time > resource.data.pingAt + duration.value(30, 'm'))))
           && (!('cyclePub' in request.resource.data) || request.resource.data.cyclePub == null || request.resource.data.cyclePub is map)
           && (!('until' in request.resource.data) || request.resource.data.until == null || request.resource.data.until is timestamp)
           && (!('level' in request.resource.data) || request.resource.data.level == null

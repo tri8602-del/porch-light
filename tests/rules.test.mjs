@@ -25,6 +25,13 @@ await t('slider value 5.5 rejected', assertFails(setDoc(doc(L, 'plCouples/c1/peo
 await t('slider value 0.5 rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 0.5 }, { merge: true })));
 await t('text level rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 'high' }, { merge: true })));
 await t('whole-number level still accepted', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 5 }, { merge: true })));
+// "Ping to update": pingAt = server time, once per 30 min
+await t('ping: set pingAt to server time', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { pingAt: serverTimestamp() }, { merge: true })));
+await t('ping: second ping within 30 min rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { pingAt: serverTimestamp() }, { merge: true })));
+await t('ping: other updates keep working (pingAt unchanged)', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 3.5 }, { merge: true })));
+await t('ping: client-chosen time rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { pingAt: Timestamp.fromMillis(Date.now() - 3600e3) }, { merge: true })));
+await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'plCouples/c1/people/ownerA'), { pingAt: Timestamp.fromMillis(Date.now() - 31 * 60e3) }, { merge: true }));
+await t('ping: allowed again after 30 min', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { pingAt: serverTimestamp() }, { merge: true })));
 await t('level out of range rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { level: 9 }, { merge: true })));
 await t('unknown field rejected', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { secret: 1 }, { merge: true })));
 await t('stranger cannot make invite for c1', assertFails(setDoc(doc(X, 'plInvites/STRANGE1'), { cid: 'c1', expires: future() })));

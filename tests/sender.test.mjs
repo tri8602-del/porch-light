@@ -64,6 +64,20 @@ ok('match at 4.0 + 4.35', plan(C, { L: fresh(4.35), M: fresh(4) }, {}, NOON).pus
 ok('no match at 3.95 + 5', plan(C, { L: fresh(3.95), M: fresh(5) }, {}, NOON).pushes.filter(p => p.type === 'match').length === 0);
 ok('out-of-range value ignored', effectiveLevel({ level: 7, at: EVENING }, false, EVENING) === null && effectiveLevel({ level: '5', at: EVENING }, false, EVENING) === null);
 
+// ---- ping to update ----
+{ const NOW = NOON; const pinged = { ...fresh(3, 30), pingAt: NOW - 3 * 60e3 }, other = { ...fresh(2, 30), checkinOn: false };
+  const r = plan(C, { L: pinged, M: other }, {}, NOW);
+  const pp = r.pushes.filter(p => p.type === 'ping');
+  ok('ping → one push to the partner only', pp.length === 1 && pp[0].uid === 'M' && pp[0].payload.body === 'Tap to update your light' && pp[0].payload.title === 'Porch Light', JSON.stringify(pp));
+  ok('ping recorded in server state', r.server.ping.L === NOW - 3 * 60e3);
+  ok('same ping not re-sent next run', plan(C, { L: pinged, M: other }, r.server, NOW + 5 * 60e3).pushes.filter(p => p.type === 'ping').length === 0);
+  ok('new ping later is sent again', plan(C, { L: { ...pinged, pingAt: NOW + 35 * 60e3 }, M: other }, r.server, NOW + 40 * 60e3).pushes.filter(p => p.type === 'ping').length === 1);
+  ok('partner already updated after the ping → no push', plan(C, { L: pinged, M: { ...other, at: NOW - 60e3 } }, {}, NOW).pushes.filter(p => p.type === 'ping').length === 0);
+  const old = plan(C, { L: { ...pinged, pingAt: NOW - 3 * H }, M: other }, {}, NOW);
+  ok('ping older than 2h dropped (but marked handled)', old.pushes.filter(p => p.type === 'ping').length === 0 && old.server.ping.L === NOW - 3 * H);
+  ok('no ping field → nothing', plan(C, { L: fresh(3, 30), M: other }, {}, NOW).pushes.filter(p => p.type === 'ping').length === 0);
+}
+
 // ---- optional expiry ("until") ----
 const NINE = Date.parse('2026-11-21T02:00:00Z');   // 9:00 PM ET
 ok('until in future keeps level', effectiveLevel({ level: 4, at: EVENING, until: NINE }, false, NINE - 60e3) === 4);
@@ -125,6 +139,14 @@ const s3 = await run({ db, sendNotification, now: EVENING + 15 * 60e3 });
 ok('e2e: match pushed while before until', s3.match === 2 && received.length === before + 2, JSON.stringify(s3));
 const s4 = await run({ db, sendNotification, now: EVENING + 31 * 60e3 });
 ok('e2e: after until → match state cleared, nothing sent', s4.sent === 0 && (await ref.collection('server').doc('state').get()).data().matchActive === false);
+// ping end to end
+await ref.collection('people').doc('M').update({ pingAt: admin.firestore.Timestamp.fromMillis(EVENING + 32 * 60e3) });
+const b5 = received.length;
+const s5 = await run({ db, sendNotification, now: EVENING + 35 * 60e3 });
+const got = received.slice(b5);
+ok('e2e: ping delivered to the other phone only', s5.ping === 1 && got.length === 1 && got[0].name === 'ownerPhone' && got[0].payload.body === PAYLOADS.ping.body, JSON.stringify(s5));
+const s6 = await run({ db, sendNotification, now: EVENING + 40 * 60e3 });
+ok('e2e: ping not repeated', s6.ping === 0 && s6.sent === 0, JSON.stringify(s6));
 server.close();
 await ref.delete();
 

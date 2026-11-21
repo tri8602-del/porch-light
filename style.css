@@ -169,3 +169,10 @@ h1{font-size:30px;margin:10px 0 6px;font-weight:600;letter-spacing:-.015em}
 .quick button{flex:1;font:inherit;font-size:14px;font-weight:500;padding:8px 0;border-radius:999px;border:1px solid var(--edge);background:#fff;color:var(--text);cursor:pointer}
 .quick button.on{background:linear-gradient(180deg,#ffe6b8,var(--amber));border-color:rgba(255,236,200,.9)}
 .us-result{text-align:center;font-size:17px;font-weight:500;color:#9a6a22;margin:10px 0 0}
+
+/* last-updated line: small, light gray */
+.p-upd{font-size:12.5px;color:var(--faint);margin-top:3px;letter-spacing:.01em}
+/* ping */
+.p-ping{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.p-ping .btn.small{font-size:14px;padding:7px 13px;color:var(--muted)}
+.p-ping-msg{font-size:12.5px;color:var(--faint)}

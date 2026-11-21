@@ -140,6 +140,9 @@ async def main():
         await M.wait_for_selector('#s-home:not(.hidden) #slider')
         await M.click('#anchors button[data-l="4"]')      # one tap on the “In the mood” icon
         await M.wait_for_function("document.getElementById('slider').getAttribute('aria-valuenow')==='4'")
+        await L.wait_for_function("document.getElementById('pUpdated').textContent.startsWith('Updated Today · ')")
+        ok('partner card shows “Updated Today · time” in small gray text', await visible(L, '#pUpdated'), await L.text_content('#pUpdated'))
+        ok('own mood shows its updated time too', (await M.text_content('#myUpdated')).startswith('Updated Today · '))
         dt = time.time() - t0
         ok('partner: open → home → one tap saved', True, f'{dt:.1f}s in test browser')
         await shot(M, '08-partner-home-one-tap.png')
@@ -360,7 +363,24 @@ async def main():
         admin_patch(f'plCouples/{cid}/people/{muid}', {'at': {'timestampValue': old}}, ['at'])
         await L.wait_for_selector('#partnerCard.stale')
         ok('stale status fades + says may be out of date', 'out of date' in await L.text_content('#pWhen'))
+        ok('stale card still shows when it was updated', (await L.text_content('#pUpdated')).startswith('Updated '), await L.text_content('#pUpdated'))
+        d3 = (datetime.datetime.now(ET) - datetime.timedelta(days=3)).replace(hour=20, minute=40, second=0, microsecond=0)
+        admin_patch(f'plCouples/{cid}/people/{muid}', {'at': {'timestampValue': d3.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}}, ['at'])
+        want = f"Updated {d3:%a}, {d3:%b} {d3.day} · 8:40 PM"
+        await L.wait_for_function(f"document.getElementById('pUpdated').textContent === {json.dumps(want)}")
+        ok('days-old status → “Updated Tue, Nov 17 · 8:40 PM” + may be out of date', 'out of date' in await L.text_content('#pWhen'), want)
         await shot(L, '17-owner-sees-stale.png')
+        # Ping to update
+        ok('Ping to update button on the partner card', (await L.text_content('#btnPing')) == 'Ping to update' and not await L.is_disabled('#btnPing'))
+        await L.click('#btnPing')
+        await L.wait_for_function("document.getElementById('btnPing').textContent === 'Pinged ✓'")
+        ok('after ping: “Pinged ✓”, button disabled (cooldown), hint shown', await L.is_disabled('#btnPing') and 'few minutes' in await L.text_content('#pPingMsg'))
+        await L.wait_for_timeout(600)
+        ok('ping request written for the sender (pingAt on own status)', 'timestampValue' in admin_get(f'plCouples/{cid}/people/{luid}')['fields'].get('pingAt', {}))
+        r = await L.evaluate("meRef().set({ pingAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).then(() => 'ok', e => e.code)")
+        ok('a second ping inside 30 min is refused by the rules', r == 'permission-denied', r)
+        await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
+        await shot(L, '17b-lindsay-pinged.png')
         await M.wait_for_timeout(500)
         ok('partner’s own stale level is un-selected with a refresh prompt', 'unset' in (await M.get_attribute('#slider', 'class')) and 'Slide to update' in await M.text_content('#youTitle'))
 

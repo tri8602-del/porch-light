@@ -46,15 +46,19 @@ function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.g
 function parseDay(s) { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); }
 function fmtDay(s) { return parseDay(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
 function dayDiff(a, b) { return Math.round((parseDay(b) - parseDay(a)) / 864e5); }
-function ago(t) {
-  const m = Math.round((Date.now() - t) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h} hr ago`;
-  const d = new Date(t);
-  return d.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+// "Updated Today · 9:12 PM" / "Yesterday · 8:40 PM" / "Tue, Nov 17 · 8:40 PM"
+function fmtUpdated(t) {
+  const d = new Date(t), now = new Date();
+  const key = x => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  const time = fmtTime(t);
+  if (key(d) === key(now)) return `Updated Today · ${time}`;
+  if (key(d) === key(y)) return `Updated Yesterday · ${time}`;
+  const o = { weekday: 'short', month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== now.getFullYear()) o.year = 'numeric';
+  return `Updated ${d.toLocaleDateString(undefined, o)} · ${time}`;
 }
+const PING_COOLDOWN_MIN = 30;   // also enforced in firestore.rules
 function isIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
 function isStandalone() { return navigator.standalone === true || matchMedia('(display-mode: standalone)').matches; }
 function myTZ() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'; } catch { return 'America/New_York'; } }
@@ -266,7 +270,7 @@ function openCouple(cid) {
     render();
   }, () => {}));
   S.unsub.push(coupleRef().collection('people').onSnapshot(q => {
-    q.docChanges().forEach(ch => { if (ch.type === 'removed') delete S.people[ch.doc.id]; else S.people[ch.doc.id] = ch.doc.data(); });
+    q.docChanges().forEach(ch => { if (ch.type === 'removed') delete S.people[ch.doc.id]; else S.people[ch.doc.id] = ch.doc.data({ serverTimestamps: 'estimate' }); });
     render();
   }, () => {}));
   S.priv = {};
@@ -528,7 +532,7 @@ function render() {
   $('pName').textContent = R.partnerName;
   const card = $('partnerCard');
   card.classList.remove('stale');
-  $('pNote').classList.add('hidden'); $('pWait').classList.add('hidden'); $('pMini').classList.add('hidden');
+  $('pNote').classList.add('hidden'); $('pWait').classList.add('hidden'); $('pMini').classList.add('hidden'); $('pUpdated').classList.add('hidden');
   if (!R.partnerUid) {
     $('pEmoji').textContent = '✉️'; $('pLabel').textContent = 'Not joined yet'; $('pWhen').textContent = '';
     const w = $('pWait'); w.classList.remove('hidden');
@@ -545,7 +549,15 @@ function render() {
     $('pEmoji').innerHTML = `<img src="${iconSrc(L.icon)}" alt="">`; $('pLabel').textContent = L.label;
     $('pMini').classList.remove('hidden'); $('pMiniDot').style.left = ((pv - 1) * 25) + '%';
     const st = isStale(pp);
-    $('pWhen').textContent = exp ? `“${LEVELS[nearest(pp.level)].label}” ended at ${fmtTime(pu)}` : (betweenText(pp.level) && !st ? betweenText(pp.level).toLowerCase().replace(/^b/, 'B') + ' · ' : '') + (pu && !st ? `until ${fmtTime(pu)} · ` : '') + ago(ms(pp.at) || Date.now()) + (st ? ' · may be out of date' : '');
+    const bits = [];
+    if (exp) bits.push(`“${LEVELS[nearest(pp.level)].label}” ended at ${fmtTime(pu)}`);
+    else if (st) bits.push('May be out of date');
+    else {
+      if (betweenText(pp.level)) bits.push(betweenText(pp.level).toLowerCase().replace(/^b/, 'B'));
+      if (pu) bits.push(`until ${fmtTime(pu)}`);
+    }
+    $('pWhen').textContent = bits.join(' · ');
+    if (ms(pp.at)) { $('pUpdated').textContent = fmtUpdated(ms(pp.at)); $('pUpdated').classList.remove('hidden'); }
     $('pWhen').classList.toggle('until', !!(pu && !exp && !st));
     if (st) card.classList.add('stale');
     const nAt = ms(pp.noteAt);
@@ -557,6 +569,7 @@ function render() {
   if (R.partnerUid && pNow.soon) tags.push(`<span class="tag soon">${ICON('drop')}Period may start soon${pNow.soonStart ? ` · ${fmtDay(pNow.soonStart)} – ${fmtDay(pNow.soonEnd)}` : ''}</span>`);
   if (R.partnerUid && pNow.fertile) tags.push(`<span class="tag fertile">${ICON('leaf')}Fertile window · through ${fmtDay(pNow.fertileTo)}</span>`);
   $('pTags').innerHTML = tags.join(''); $('pTags').classList.toggle('hidden', !tags.length);
+  renderPing(R, me, pp);
 
   // Match
   const lvMe = effLevel(me, iTrack), lvP = R.partnerUid ? effLevel(pp, pTracks) : null;
@@ -568,6 +581,9 @@ function render() {
   if (!SL.drag) showSlider(myLv, true);
   $('youTitle').textContent = myExp ? `“${LEVELS[nearest(me.level)].label}” ended at ${fmtTime(untilMs(me))}` : myLv ? 'How are you feeling?' : (isLv(me.level) ? 'Still feeling the same? Slide to update' : 'How are you feeling?');
   renderUntil(me, myLv);
+  const myAt = ms(me.at);
+  $('myUpdated').classList.toggle('hidden', !(myAt && isLv(me.level)));
+  if (myAt) $('myUpdated').textContent = fmtUpdated(myAt);
   const onPeriod = !!(C && C.current);
   $('mood').classList.toggle('dim', !!onPeriod);
   $('periodOverlay').classList.toggle('hidden', !onPeriod);
@@ -602,6 +618,27 @@ function render() {
   if (!$('sheet').classList.contains('hidden')) fillSettings(false);
   maybeOpenImportFromHash();
 }
+// ---------- ping: ask your partner to refresh their status ----------
+// Writes pingAt on your own status doc; the scheduled sender (every ~5–15 min) sends them a discreet push.
+function renderPing(R, me, pp) {
+  const row = $('pPingRow'), btn = $('btnPing'), msg = $('pPingMsg');
+  row.classList.toggle('hidden', !R.partnerUid);
+  if (!R.partnerUid) return;
+  const last = ms(me.pingAt), wait = last ? last + PING_COOLDOWN_MIN * 60e3 - Date.now() : 0;
+  const answered = last && pp && ms(pp.at) > last;
+  if (wait > 0) {
+    btn.disabled = true; btn.textContent = answered ? 'Ping to update' : 'Pinged ✓';
+    msg.textContent = answered ? `Ping again after ${fmtTime(last + PING_COOLDOWN_MIN * 60e3)}` : (Date.now() - last < 15 * 60e3 ? 'They’ll get a nudge in a few minutes' : `Ping again after ${fmtTime(last + PING_COOLDOWN_MIN * 60e3)}`);
+    clearTimeout(S.pingTimer); S.pingTimer = setTimeout(render, Math.min(wait + 500, 15 * 60e3));
+  } else { btn.disabled = false; btn.textContent = 'Ping to update'; msg.textContent = ''; }
+}
+async function sendPing() {
+  const btn = $('btnPing'); if (btn.disabled) return;
+  btn.disabled = true;
+  try { await meRef().set({ pingAt: FV().serverTimestamp() }, { merge: true }); toast('Pinged'); }
+  catch (e) { toast('You can ping again in a bit'); btn.disabled = false; }
+}
+$('btnPing').onclick = sendPing;
 window.addEventListener('hashchange', () => maybeOpenImportFromHash());
 
 // ---------- settings ----------
