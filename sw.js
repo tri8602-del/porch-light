@@ -1,7 +1,8 @@
 // Porch Light service worker: offline shell + Web Push.
-const CACHE = 'pl-sw-1.3.0';
+const CACHE = 'pl-sw-1.4.0';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'config.js', 'cycle.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-64.png', 'icons/maskable-512.png',
+  ...['sparkle', 'sun', 'chat', 'heart', 'moon', 'drop', 'leaf'].map(n => `icons/moods/${n}.webp`),
   'vendor/firebase/firebase-app-compat.js', 'vendor/firebase/firebase-auth-compat.js', 'vendor/firebase/firebase-firestore-compat.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

@@ -7,7 +7,7 @@ import webpush from 'web-push';
 import { plan } from './logic.mjs';
 
 export async function run({ db, sendNotification, now = Date.now() }) {
-  const stats = { couples: 0, checkin: 0, match: 0, sent: 0, failed: 0, removed: 0 };
+  const stats = { couples: 0, checkin: 0, match: 0, ping: 0, sent: 0, failed: 0, removed: 0 };
   const snap = await db.collection('plCouples').get();
   for (const doc of snap.docs) {
     const couple = doc.data();

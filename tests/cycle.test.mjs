@@ -6,6 +6,17 @@ const T = '2026-11-20';
 const d = n => CY.addDays(T, -n);
 let s = CY.summary([{ start: d(2) }], {}, T);
 ok('defaults: 5 days unavailable, day 3', s.current && s.day === 3 && s.endsOn === d(-2), JSON.stringify([s.day, s.endsOn]));
+ok('next period has an estimated end (start + length − 1)', CY.summary([{ start: d(25) }], {}, T).nextEnd === d(-7));
+ok('next period end follows her length setting', CY.summary([{ start: d(25) }], { periodDays: 7 }, T).nextEnd === d(-9));
+{ const n = CY.publicNow(CY.publicView([{ start: d(1) }], {}, T), T);
+  ok('partner: day 2 of 5, ends around (start + 4)', n.day === 2 && n.length === 5 && n.endsOn === d(-3), JSON.stringify(n)); }
+{ const n = CY.publicNow(CY.publicView([{ start: d(1), end: d(-5) }], {}, T), T);
+  ok('partner: her own end date wins (day 2 of 7)', n.length === 7 && n.endsOn === d(-5), JSON.stringify(n)); }
+{ const n = CY.publicNow(CY.publicView([{ start: d(25) }], {}, T), T);
+  ok('partner: soon carries start – end', n.soon && n.soonStart === d(-3) && n.soonEnd === d(-7), JSON.stringify(n)); }
+{ const n = CY.publicNow(CY.publicView([{ start: d(12) }], {}, T), T);
+  ok('partner: fertile carries its end', n.fertile && n.fertileTo === d(-3), JSON.stringify(n)); }
+ok('partner: nothing shared → no dates', CY.publicNow(null, T).endsOn === null && CY.publicNow(null, T).soonEnd === null);
 ok('auto-ends after day 5', !CY.summary([{ start: d(5) }], {}, T).current);
 ok('period length adjustable (7)', CY.summary([{ start: d(5) }], { periodDays: 7 }, T).day === 6);
 ok('ended early today → not current', !CY.summary([{ start: d(2), end: T, early: true }], {}, T).current);

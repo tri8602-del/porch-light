@@ -1,15 +1,25 @@
 /* Porch Light — a private two-person status app. */
 'use strict';
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const CY = window.PLCycle;
 const CFG = window.PL_CONFIG || {};
 const LEVELS = [null,
-  { label: 'Not tonight',   emoji: '😴', c: 'var(--l1)' },
-  { label: 'Just cuddles',  emoji: '🤗', c: 'var(--l2)' },
-  { label: 'Maybe, ask me', emoji: '🙂', c: 'var(--l3)' },
-  { label: 'In the mood',   emoji: '😊', c: 'var(--l4)' },
-  { label: 'Come find me',  emoji: '😉', c: 'var(--l5)' },
+  { label: 'Not tonight',   icon: 'moon' },
+  { label: 'Just cuddles',  icon: 'heart' },
+  { label: 'Maybe, ask me', icon: 'chat' },
+  { label: 'In the mood',   icon: 'sun' },
+  { label: 'Come find me',  icon: 'sparkle' },
 ];
+const iconSrc = n => `icons/moods/${n}.webp`;
+const ICON = n => `<img class="ic" src="${iconSrc(n)}" alt="">`;
+// Mood is a number from 1.0 (Not tonight) to 5.0 (Come find me); older saves are whole numbers.
+const isLv = v => typeof v === 'number' && isFinite(v) && v >= 1 && v <= 5;
+const nearest = v => Math.min(5, Math.max(1, Math.round(v)));
+function betweenText(v) {
+  const n = nearest(v); if (Math.abs(v - n) < 0.2) return '';
+  const lo = Math.floor(v), hi = Math.ceil(v);
+  return `Between ${LEVELS[lo].label.replace(', ask me', '')} and ${LEVELS[hi].label.replace(', ask me', '')}`;
+}
 const MATCH_MIN = 4, DEFAULT_STALE = 8, DEFAULT_CHECKIN = '19:30';
 const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const $ = id => document.getElementById(id);
@@ -36,15 +46,19 @@ function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.g
 function parseDay(s) { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); }
 function fmtDay(s) { return parseDay(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
 function dayDiff(a, b) { return Math.round((parseDay(b) - parseDay(a)) / 864e5); }
-function ago(t) {
-  const m = Math.round((Date.now() - t) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h} hr ago`;
-  const d = new Date(t);
-  return d.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+// "Updated Today · 9:12 PM" / "Yesterday · 8:40 PM" / "Tue, Nov 17 · 8:40 PM"
+function fmtUpdated(t) {
+  const d = new Date(t), now = new Date();
+  const key = x => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  const time = fmtTime(t);
+  if (key(d) === key(now)) return `Updated Today · ${time}`;
+  if (key(d) === key(y)) return `Updated Yesterday · ${time}`;
+  const o = { weekday: 'short', month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== now.getFullYear()) o.year = 'numeric';
+  return `Updated ${d.toLocaleDateString(undefined, o)} · ${time}`;
 }
+const PING_COOLDOWN_MIN = 30;   // also enforced in firestore.rules
 function isIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
 function isStandalone() { return navigator.standalone === true || matchMedia('(display-mode: standalone)').matches; }
 function myTZ() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'; } catch { return 'America/New_York'; } }
@@ -54,7 +68,7 @@ async function sha(s) { const h = await crypto.subtle.digest('SHA-256', new Text
 function effLevel(p, isTracker) {
   if (!p) return null;
   if (isTracker && CY.publicNow(p.cyclePub, today()).active) return 0;
-  if (!Number.isInteger(p.level)) return null;
+  if (!isLv(p.level)) return null;
   const at = ms(p.at), st = (Number(p.staleHours) > 0 ? Number(p.staleHours) : DEFAULT_STALE) * 3600e3;
   if (at == null || Date.now() - at > st) return null;
   if (isExpired(p)) return 1;
@@ -72,7 +86,7 @@ function untilOptions(now = Date.now()) {
   return out;
 }
 function isStale(p) {
-  if (!p || !Number.isInteger(p.level)) return false;
+  if (!p || !isLv(p.level)) return false;
   const at = ms(p.at), st = (Number(p.staleHours) > 0 ? Number(p.staleHours) : DEFAULT_STALE) * 3600e3;
   return at != null && Date.now() - at > st;
 }
@@ -256,7 +270,7 @@ function openCouple(cid) {
     render();
   }, () => {}));
   S.unsub.push(coupleRef().collection('people').onSnapshot(q => {
-    q.docChanges().forEach(ch => { if (ch.type === 'removed') delete S.people[ch.doc.id]; else S.people[ch.doc.id] = ch.doc.data(); });
+    q.docChanges().forEach(ch => { if (ch.type === 'removed') delete S.people[ch.doc.id]; else S.people[ch.doc.id] = ch.doc.data({ serverTimestamps: 'estimate' }); });
     render();
   }, () => {}));
   S.priv = {};
@@ -274,23 +288,59 @@ function roles() {
   return { c, uid, isOwner, partnerUid, myName: isOwner ? names.owner : names.partner, partnerName: (isOwner ? names.partner : names.owner) || 'Partner' };
 }
 
-function buildLevels() {
-  const box = $('levels'); box.innerHTML = '';
-  for (let i = 5; i >= 1; i--) {
-    const L = LEVELS[i], b = document.createElement('button');
-    b.className = 'lv'; b.dataset.l = i; b.style.setProperty('--c', L.c);
-    b.innerHTML = `<span class="e">${L.emoji}</span><span>${L.label}</span>`;
-    b.onclick = () => setLevel(i);
+// ---------- mood slider ----------
+const SL = { v: null, drag: false, lastAnchor: null };
+function buildAnchors() {
+  const box = $('anchors'); box.innerHTML = '';
+  for (let i = 1; i <= 5; i++) {
+    const b = document.createElement('button'); b.dataset.l = i; b.style.left = ((i - 1) * 25) + '%';
+    b.innerHTML = `<img src="${iconSrc(LEVELS[i].icon)}" alt="">${LEVELS[i].label}`;
+    b.onclick = () => { showSlider(i, true); setLevel(i); };
     box.appendChild(b);
   }
 }
-buildLevels();
+buildAnchors();
+function showSlider(v, set) {
+  const sl = $('slider');
+  sl.classList.toggle('unset', v == null);
+  const shown = v == null ? 3 : v, pct = (shown - 1) * 25;
+  $('sliderThumb').style.left = pct + '%'; $('sliderFill').style.width = pct + '%';
+  sl.setAttribute('aria-valuenow', v == null ? '' : String(v));
+  const n = v == null ? null : nearest(v);
+  sl.setAttribute('aria-valuetext', n ? LEVELS[n].label : 'Not set');
+  document.querySelectorAll('#anchors button').forEach(b => b.classList.toggle('near', Number(b.dataset.l) === n));
+  if (n) { $('moodIcon').src = iconSrc(LEVELS[n].icon); $('moodIcon').style.opacity = 1; $('moodLabel').textContent = LEVELS[n].label; $('moodSub').textContent = betweenText(v); }
+  else { $('moodIcon').style.opacity = .35; $('moodLabel').textContent = 'Slide to set'; $('moodSub').textContent = ''; }
+  if (set) SL.v = v;
+}
+function valueAt(clientX) {
+  const r = $('slider').getBoundingClientRect();
+  let v = 1 + Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * 4;
+  const n = Math.round(v);
+  if (Math.abs(v - n) < 0.12) v = n;           // gentle snap to the five anchors
+  return Math.round(v * 20) / 20;               // 0.05 steps
+}
+(() => {
+  const sl = $('slider');
+  sl.addEventListener('pointerdown', e => { if (!S.cid) return; SL.drag = true; sl.classList.add('drag'); sl.setPointerCapture(e.pointerId); const v = valueAt(e.clientX); showSlider(v, true); SL.lastAnchor = Number.isInteger(v) ? v : null; e.preventDefault(); });
+  sl.addEventListener('pointermove', e => {
+    if (!SL.drag) return; const v = valueAt(e.clientX); showSlider(v, true);
+    if (Number.isInteger(v) && v !== SL.lastAnchor) { SL.lastAnchor = v; try { navigator.vibrate && navigator.vibrate(6); } catch (err) {} }
+  });
+  const end = () => { if (!SL.drag) return; SL.drag = false; sl.classList.remove('drag'); if (SL.v != null) setLevel(SL.v); };
+  sl.addEventListener('pointerup', end); sl.addEventListener('pointercancel', end);
+  sl.addEventListener('keydown', e => {
+    const d = { ArrowRight: .25, ArrowUp: .25, ArrowLeft: -.25, ArrowDown: -.25 }[e.key]; if (!d) return;
+    e.preventDefault(); const v = Math.min(5, Math.max(1, Math.round(((SL.v || 3) + d) * 20) / 20)); showSlider(v, true); clearTimeout(SL.kt); SL.kt = setTimeout(() => setLevel(v), 500);
+  });
+})();
 
-async function setLevel(i) {
+async function setLevel(v) {
   if (!S.cid) return;
-  const mine = S.people[S.user.uid] = { ...(S.people[S.user.uid] || {}), level: i, at: Date.now(), until: null };
+  v = Math.min(5, Math.max(1, Math.round(v * 20) / 20));
+  S.people[S.user.uid] = { ...(S.people[S.user.uid] || {}), level: v, at: Date.now(), until: null };
   render(); flashSaved();
-  try { await meRef().set({ level: i, at: FV().serverTimestamp(), until: null }, { merge: true }); }
+  try { await meRef().set({ level: v, at: FV().serverTimestamp(), until: null }, { merge: true }); }
   catch (e) { toast("Couldn't save — check your connection"); }
 }
 async function setUntil(t) {
@@ -303,7 +353,7 @@ async function setUntil(t) {
 function renderUntil(me, myLv) {
   const row = $('untilRow');
   const R = roles(); const onPer = R.c.tracker === R.uid && cyc().current;
-  const show = Number.isInteger(myLv) && myLv >= 2 && !isExpired(me) && !onPer;
+  const show = isLv(myLv) && nearest(myLv) >= 2 && !isExpired(me) && !onPer;
   row.classList.toggle('hidden', !show);
   if (!show) return;
   const cur = untilMs(me);
@@ -316,7 +366,45 @@ function renderUntil(me, myLv) {
   }
   const n = document.createElement('button'); n.className = 'chip' + (!cur ? ' on' : ''); n.dataset.t = '0';
   n.textContent = 'No end'; n.onclick = () => setUntil(null); box.appendChild(n);
+  const c = document.createElement('button'); c.className = 'chip'; c.id = 'chipCustom'; c.textContent = 'Custom…'; c.onclick = openUntilSheet; box.appendChild(c);
 }
+// ---------- custom "good until": a time, or a duration ----------
+const US = { mode: 'time', dur: 60 };
+function usTarget() {
+  if (US.mode === 'dur') return Date.now() + US.dur * 60e3;
+  const v = $('usTimeInput').value; if (!/^\d{2}:\d{2}$/.test(v)) return null;
+  const d = new Date(); d.setHours(+v.slice(0, 2), +v.slice(3), 0, 0);
+  if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);   // earlier than now = tomorrow (e.g. 1:00 AM)
+  return d.getTime();
+}
+function usRender() {
+  $('usTabTime').classList.toggle('on', US.mode === 'time'); $('usTabDur').classList.toggle('on', US.mode === 'dur');
+  $('usTime').classList.toggle('hidden', US.mode !== 'time'); $('usDur').classList.toggle('hidden', US.mode !== 'dur');
+  $('usH').children[1].textContent = Math.floor(US.dur / 60); $('usM').children[1].textContent = US.dur % 60;
+  document.querySelectorAll('#usDur .quick button').forEach(b => b.classList.toggle('on', +b.dataset.m === US.dur));
+  const t = usTarget();
+  $('usResult').textContent = t ? `Until ${fmtTime(t)}${new Date(t).getDate() !== new Date().getDate() ? ' tomorrow' : ''}` : '';
+  $('btnUsSet').disabled = !t || (US.mode === 'dur' && US.dur < 5);
+}
+function openUntilSheet() {
+  const cur = untilMs(S.people[S.user.uid] || {});
+  const d = new Date(cur && cur > Date.now() ? cur : Date.now() + 90 * 60e3);
+  if (!cur) { d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); }
+  $('usTimeInput').value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  usRender(); $('untilSheet').classList.remove('hidden');
+}
+$('usTabTime').onclick = () => { US.mode = 'time'; usRender(); };
+$('usTabDur').onclick = () => { US.mode = 'dur'; usRender(); };
+$('usTimeInput').addEventListener('input', usRender); $('usTimeInput').addEventListener('change', usRender);
+document.querySelectorAll('#usDur .quick button').forEach(b => b.onclick = () => { US.dur = +b.dataset.m; usRender(); });
+$('usH').children[0].onclick = () => { US.dur = Math.max(0, US.dur - 60); usRender(); };
+$('usH').children[2].onclick = () => { US.dur = Math.min(23 * 60 + 45, US.dur + 60); usRender(); };
+$('usM').children[0].onclick = () => { US.dur = Math.max(0, US.dur - 15); usRender(); };
+$('usM').children[2].onclick = () => { US.dur = Math.min(23 * 60 + 45, US.dur + 15); usRender(); };
+$('btnUsClose').onclick = () => $('untilSheet').classList.add('hidden');
+$('untilSheet').addEventListener('click', e => { if (e.target.id === 'untilSheet') $('untilSheet').classList.add('hidden'); });
+$('btnUsSet').onclick = () => { const t = usTarget(); if (!t) return; $('untilSheet').classList.add('hidden'); setUntil(Math.round(t / 60e3) * 60e3); };
+
 function flashSaved() { const t = $('savedTick'); t.textContent = '✓ Saved'; clearTimeout(flashSaved._t); flashSaved._t = setTimeout(() => { t.textContent = ''; }, 2500); }
 
 $('btnNote').onclick = async () => {
@@ -444,23 +532,32 @@ function render() {
   $('pName').textContent = R.partnerName;
   const card = $('partnerCard');
   card.classList.remove('stale');
-  $('pNote').classList.add('hidden'); $('pWait').classList.add('hidden');
+  $('pNote').classList.add('hidden'); $('pWait').classList.add('hidden'); $('pMini').classList.add('hidden'); $('pUpdated').classList.add('hidden');
   if (!R.partnerUid) {
     $('pEmoji').textContent = '✉️'; $('pLabel').textContent = 'Not joined yet'; $('pWhen').textContent = '';
     const w = $('pWait'); w.classList.remove('hidden');
     w.innerHTML = R.isOwner && R.c.joinCode ? `Their code: <b>${fmtCode(R.c.joinCode)}</b> &nbsp;<button class="btn small" id="btnShareWait">Send invite</button>` : 'Waiting for your partner to join.';
     const b = $('btnShareWait'); if (b) b.onclick = () => shareInvite(R.c.joinCode);
   } else if (pNow.active) {
-    $('pEmoji').textContent = '🌸'; $('pLabel').textContent = 'Unavailable';
-    $('pWhen').textContent = `Period · day ${pNow.day}`;
-  } else if (!pp || !Number.isInteger(pp.level)) {
+    $('pEmoji').innerHTML = `<img src="${iconSrc('drop')}" alt="">`; $('pLabel').textContent = 'Unavailable';
+    $('pWhen').textContent = `Day ${pNow.day} of ${pNow.length} · ends around ${fmtDay(pNow.endsOn)}`;
+  } else if (!pp || !isLv(pp.level)) {
     $('pEmoji').textContent = '💭'; $('pLabel').textContent = 'No update yet'; $('pWhen').textContent = '';
   } else {
     const exp = isExpired(pp), pu = untilMs(pp);
-    const L = LEVELS[exp ? 1 : pp.level];
-    $('pEmoji').textContent = L.emoji; $('pLabel').textContent = L.label;
+    const pv = exp ? 1 : pp.level, L = LEVELS[nearest(pv)];
+    $('pEmoji').innerHTML = `<img src="${iconSrc(L.icon)}" alt="">`; $('pLabel').textContent = L.label;
+    $('pMini').classList.remove('hidden'); $('pMiniDot').style.left = ((pv - 1) * 25) + '%';
     const st = isStale(pp);
-    $('pWhen').textContent = exp ? `“${LEVELS[pp.level].label}” ended at ${fmtTime(pu)}` : (pu && !st ? `until ${fmtTime(pu)} · ` : '') + ago(ms(pp.at) || Date.now()) + (st ? ' · may be out of date' : '');
+    const bits = [];
+    if (exp) bits.push(`“${LEVELS[nearest(pp.level)].label}” ended at ${fmtTime(pu)}`);
+    else if (st) bits.push('May be out of date');
+    else {
+      if (betweenText(pp.level)) bits.push(betweenText(pp.level).toLowerCase().replace(/^b/, 'B'));
+      if (pu) bits.push(`until ${fmtTime(pu)}`);
+    }
+    $('pWhen').textContent = bits.join(' · ');
+    if (ms(pp.at)) { $('pUpdated').textContent = fmtUpdated(ms(pp.at)); $('pUpdated').classList.remove('hidden'); }
     $('pWhen').classList.toggle('until', !!(pu && !exp && !st));
     if (st) card.classList.add('stale');
     const nAt = ms(pp.noteAt);
@@ -469,22 +566,26 @@ function render() {
 
   // gentle shared cycle notes on the partner card
   const tags = [];
-  if (R.partnerUid && pNow.soon) tags.push('<span class="tag soon">🌸 Period may start soon</span>');
-  if (R.partnerUid && pNow.fertile) tags.push('<span class="tag fertile">Fertile window (est.)</span>');
+  if (R.partnerUid && pNow.soon) tags.push(`<span class="tag soon">${ICON('drop')}Period may start soon${pNow.soonStart ? ` · ${fmtDay(pNow.soonStart)} – ${fmtDay(pNow.soonEnd)}` : ''}</span>`);
+  if (R.partnerUid && pNow.fertile) tags.push(`<span class="tag fertile">${ICON('leaf')}Fertile window · through ${fmtDay(pNow.fertileTo)}</span>`);
   $('pTags').innerHTML = tags.join(''); $('pTags').classList.toggle('hidden', !tags.length);
+  renderPing(R, me, pp);
 
   // Match
   const lvMe = effLevel(me, iTrack), lvP = R.partnerUid ? effLevel(pp, pTracks) : null;
   $('matchBanner').classList.toggle('hidden', !(lvMe != null && lvP != null && lvMe >= MATCH_MIN && lvP >= MATCH_MIN));
 
   // My buttons
-  const myExp = !isStale(me) && Number.isInteger(me.level) && isExpired(me);
-  const myLv = isStale(me) ? null : (myExp ? 1 : me.level);
-  document.querySelectorAll('.lv').forEach(b => b.classList.toggle('on', Number(b.dataset.l) === myLv));
-  $('youTitle').textContent = myExp ? `“${LEVELS[me.level].label}” ended at ${fmtTime(untilMs(me))}` : myLv ? 'How are you feeling?' : (Number.isInteger(me.level) ? 'Still feeling the same? Tap to update' : 'How are you feeling?');
+  const myExp = !isStale(me) && isLv(me.level) && isExpired(me);
+  const myLv = isStale(me) || !isLv(me.level) ? null : (myExp ? 1 : me.level);
+  if (!SL.drag) showSlider(myLv, true);
+  $('youTitle').textContent = myExp ? `“${LEVELS[nearest(me.level)].label}” ended at ${fmtTime(untilMs(me))}` : myLv ? 'How are you feeling?' : (isLv(me.level) ? 'Still feeling the same? Slide to update' : 'How are you feeling?');
   renderUntil(me, myLv);
+  const myAt = ms(me.at);
+  $('myUpdated').classList.toggle('hidden', !(myAt && isLv(me.level)));
+  if (myAt) $('myUpdated').textContent = fmtUpdated(myAt);
   const onPeriod = !!(C && C.current);
-  $('levels').classList.toggle('dim', !!onPeriod);
+  $('mood').classList.toggle('dim', !!onPeriod);
   $('periodOverlay').classList.toggle('hidden', !onPeriod);
 
   // Note (optional, mostly for the owner)
@@ -495,19 +596,18 @@ function render() {
   // Period toggle
   $('btnPeriod').classList.toggle('hidden', !iTrack);
   $('btnPeriod').classList.toggle('on', onPeriod);
-  $('btnPeriod').textContent = onPeriod ? '🌸 Period ended' : '🌸 Period started';
+  $('btnPeriod').querySelector('span').textContent = onPeriod ? 'Period ended' : 'Period started';
   const box = $('cycleBox');
   if (C) {
     const L = [];
-    if (C.current) L.push(`<div class="ln soon">🌸 <span><b>Period · day ${C.day} of ${C.cfg.periodDays}</b> — unavailable through ${fmtDay(C.endsOn)}</span></div>`);
-    else if (C.soon) L.push(`<div class="ln soon">🌸 <span><b>Period starting soon</b> · expected around ${fmtDay(C.next)}</span></div>`);
-    else if (C.next) L.push(`<div class="ln muted"><span>Next period expected around ${fmtDay(C.next)}</span></div>`);
+    if (C.current) L.push(`<div class="ln soon">${ICON('drop')} <span><b>Period · day ${C.day} of ${CY.diff(C.current.start, C.endsOn) + 1}</b> · ends around ${fmtDay(C.endsOn)}</span></div>`);
+    else if (C.soon) L.push(`<div class="ln soon">${ICON('drop')} <span><b>Period starting soon</b> · expected ${fmtDay(C.next)} – ${fmtDay(C.nextEnd)}</span></div>`);
+    else if (C.next) L.push(`<div class="ln muted"><span>Next period expected ${fmtDay(C.next)} – ${fmtDay(C.nextEnd)}</span></div>`);
     else L.push('<div class="ln muted"><span>Tap <b>Period started</b> to begin tracking.</span></div>');
     if (C.fertile && !C.current) {
       const t = today();
-      if (C.inFertile) L.push(`<div class="ln fert">◌ <span><b>Fertile window</b> (estimate) · through ${fmtDay(C.fertile.to)}</span></div>`);
-      else if (t < C.fertile.from) L.push(`<div class="ln fert">◌ <span>Fertile window (estimate) · ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}</span></div>`);
-      if (C.inFertile || t < C.fertile.from) L.push('<div class="fine">Estimates only — not birth control.</div>');
+      if (C.inFertile) L.push(`<div class="ln fert">${ICON('leaf')} <span><b>Fertile window</b> · ends ${fmtDay(C.fertile.to)}</span></div>`);
+      else if (t < C.fertile.from) L.push(`<div class="ln fert">${ICON('leaf')} <span>Fertile window · ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}</span></div>`);
     }
     box.innerHTML = L.join(''); box.classList.remove('hidden');
   } else box.classList.add('hidden');
@@ -518,6 +618,27 @@ function render() {
   if (!$('sheet').classList.contains('hidden')) fillSettings(false);
   maybeOpenImportFromHash();
 }
+// ---------- ping: ask your partner to refresh their status ----------
+// Writes pingAt on your own status doc; the scheduled sender (every ~5–15 min) sends them a discreet push.
+function renderPing(R, me, pp) {
+  const row = $('pPingRow'), btn = $('btnPing'), msg = $('pPingMsg');
+  row.classList.toggle('hidden', !R.partnerUid);
+  if (!R.partnerUid) return;
+  const last = ms(me.pingAt), wait = last ? last + PING_COOLDOWN_MIN * 60e3 - Date.now() : 0;
+  const answered = last && pp && ms(pp.at) > last;
+  if (wait > 0) {
+    btn.disabled = true; btn.textContent = answered ? 'Ping to update' : 'Pinged ✓';
+    msg.textContent = answered ? `Ping again after ${fmtTime(last + PING_COOLDOWN_MIN * 60e3)}` : (Date.now() - last < 15 * 60e3 ? 'They’ll get a nudge in a few minutes' : `Ping again after ${fmtTime(last + PING_COOLDOWN_MIN * 60e3)}`);
+    clearTimeout(S.pingTimer); S.pingTimer = setTimeout(render, Math.min(wait + 500, 15 * 60e3));
+  } else { btn.disabled = false; btn.textContent = 'Ping to update'; msg.textContent = ''; }
+}
+async function sendPing() {
+  const btn = $('btnPing'); if (btn.disabled) return;
+  btn.disabled = true;
+  try { await meRef().set({ pingAt: FV().serverTimestamp() }, { merge: true }); toast('Pinged'); }
+  catch (e) { toast('You can ping again in a bit'); btn.disabled = false; }
+}
+$('btnPing').onclick = sendPing;
 window.addEventListener('hashchange', () => maybeOpenImportFromHash());
 
 // ---------- settings ----------
@@ -545,8 +666,8 @@ function fillSettings(all = true) {
     $('cycleManualRow').classList.toggle('hidden', cfg.cycleAuto);
     $('setShareFertile').checked = cfg.shareFertile; $('setShareSoon').checked = cfg.shareSoon;
     const bits = [];
-    if (C.next) bits.push(`Next period expected around ${fmtDay(C.next)} (${C.cycleAvg ? 'your ' + C.cycleLen + '-day average' : C.cycleLen + '-day cycle'}).`);
-    if (C.fertile) bits.push(`Fertile window est. ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}.`);
+    if (C.next) bits.push(`Next period expected ${fmtDay(C.next)} – ${fmtDay(C.nextEnd)} (${C.cycleAvg ? 'your ' + C.cycleLen + '-day average' : C.cycleLen + '-day cycle'}).`);
+    if (C.fertile) bits.push(`Fertile window ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}.`);
     $('setPredict').textContent = bits.join(' ');
     const hist = C.history.slice().reverse();
     $('periodHist').innerHTML = hist.length ? hist.slice(0, 12).map(h => {

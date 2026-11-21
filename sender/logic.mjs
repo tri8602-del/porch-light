@@ -9,17 +9,19 @@ export const LEVELS = [
   { label: 'In the mood', emoji: '😊' },
   { label: 'Come find me', emoji: '😉' },
 ];
-export const MATCH_MIN = 4;              // both at 4 or 5 = a match
+export const MATCH_MIN = 4;              // both at 'In the mood' (4.0) or higher = a match
 export const DEFAULT_STALE_HOURS = 8;
 export const DEFAULT_CHECKIN = '19:30';
 export const DEFAULT_TZ = 'America/New_York';
 export const CHECKIN_WINDOW_MIN = 180;   // don't send a check-in more than 3h late
 export const RECENT_UPDATE_MIN = 60;     // skip the check-in if they updated in the last hour
+export const PING_MAX_AGE_MIN = 120;     // a ping older than this (sender was down) is dropped, not sent late
 
 // Discreet push text: nothing explicit ever reaches a lock screen.
 export const PAYLOADS = {
   checkin: { title: 'Porch Light', body: 'Evening check-in 🌙 Tap to update.', tag: 'pl-checkin', url: './?from=checkin' },
   match:   { title: 'Porch Light', body: "You're on the same page 💛", tag: 'pl-match', url: './?from=match' },
+  ping:    { title: 'Porch Light', body: 'Tap to update your light', tag: 'pl-ping', url: './?from=ping' },
 };
 
 export function toMillis(t) {
@@ -36,7 +38,8 @@ export function toMillis(t) {
 export function effectiveLevel(person, isTracker, nowMs) {
   if (!person) return null;
   if (isTracker && CY.publicNow(person.cyclePub, localParts(nowMs, person.tz).date).active) return 0;
-  if (!Number.isInteger(person.level)) return null;
+  // mood is a number 1.0-5.0 (slider); older saves are whole numbers
+  if (typeof person.level !== 'number' || !isFinite(person.level) || person.level < 1 || person.level > 5) return null;
   const at = toMillis(person.at);
   const staleH = Number(person.staleHours) > 0 ? Number(person.staleHours) : DEFAULT_STALE_HOURS;
   if (at == null || nowMs - at > staleH * 3600e3) return null;
@@ -63,11 +66,11 @@ function hhmmToMin(s) {
 /**
  * couple: { members:[uid,uid], tracker: uid|null }
  * people: { [uid]: personDoc }
- * server: { checkin: {[uid]: 'YYYY-MM-DD'}, matchActive: bool }
+ * server: { checkin: {[uid]: 'YYYY-MM-DD'}, matchActive: bool, ping: {[uid]: ms of the last ping handled} }
  * returns { pushes:[{uid,type,payload}], server: newServerState }
  */
 export function plan(couple, people, server, nowMs) {
-  const out = { pushes: [], server: { checkin: { ...((server && server.checkin) || {}) }, matchActive: !!(server && server.matchActive) } };
+  const out = { pushes: [], server: { checkin: { ...((server && server.checkin) || {}) }, matchActive: !!(server && server.matchActive), ping: { ...((server && server.ping) || {}) } } };
   const members = Array.isArray(couple && couple.members) ? couple.members : [];
   if (members.length !== 2) return out;
 
@@ -91,6 +94,19 @@ export function plan(couple, people, server, nowMs) {
     const at = toMillis(p.at);
     if (at != null && nowMs - at < RECENT_UPDATE_MIN * 60e3) continue;   // they just updated
     out.pushes.push({ uid: u, type: 'checkin', payload: PAYLOADS.checkin });
+  }
+
+  // "Ping to update": one push to the partner per new ping (the app + rules limit pings to one per 30 min).
+  for (const u of members) {
+    const t = toMillis(people[u] && people[u].pingAt);
+    if (t == null || t <= (Number(out.server.ping[u]) || 0)) continue;
+    out.server.ping[u] = t;                    // handled, sent or not
+    const other = members.find(x => x !== u);
+    const otherAt = toMillis(people[other] && people[other].at);
+    if (nowMs - t > PING_MAX_AGE_MIN * 60e3) continue;   // too old
+    if (otherAt != null && otherAt > t) continue;         // they already updated
+    if (out.pushes.some(p => p.uid === other && p.type === 'checkin')) continue;   // a check-in is going out anyway
+    out.pushes.push({ uid: other, type: 'ping', payload: PAYLOADS.ping });
   }
   return out;
 }

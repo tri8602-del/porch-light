@@ -137,9 +137,12 @@ async def main():
         # ---- 3. partner reopens the app (as if tapping the evening push) and taps once ----
         await M.goto(BASE + '?emu=1&from=checkin')
         t0 = time.time()
-        await M.wait_for_selector('#s-home:not(.hidden) .lv')
-        await M.click('.lv[data-l="4"]')
-        await M.wait_for_selector('.lv[data-l="4"].on')
+        await M.wait_for_selector('#s-home:not(.hidden) #slider')
+        await M.click('#anchors button[data-l="4"]')      # one tap on the “In the mood” icon
+        await M.wait_for_function("document.getElementById('slider').getAttribute('aria-valuenow')==='4'")
+        await L.wait_for_function("document.getElementById('pUpdated').textContent.startsWith('Updated Today · ')")
+        ok('partner card shows “Updated Today · time” in small gray text', await visible(L, '#pUpdated'), await L.text_content('#pUpdated'))
+        ok('own mood shows its updated time too', (await M.text_content('#myUpdated')).startswith('Updated Today · '))
         dt = time.time() - t0
         ok('partner: open → home → one tap saved', True, f'{dt:.1f}s in test browser')
         await shot(M, '08-partner-home-one-tap.png')
@@ -151,7 +154,18 @@ async def main():
 
         # ---- 4. owner: note + top level → match on both ----
         await L.fill('#noteInput', 'Kids asleep by 8 🙂'); await L.click('#btnNote')
-        await L.click('.lv[data-l="5"]')
+        # drag the slider to an in-between spot and let go → saves automatically
+        await drag_to(L, 3.6)
+        await M.wait_for_function("document.getElementById('pWhen').textContent.startsWith('Between maybe and in the mood')")
+        lv = float(list(admin_get(f'plCouples/{cid}/people/{luid}')['fields']['level'].values())[0])
+        ok('drag + release saves an in-between value (≈3.6)', abs(lv - 3.6) < 0.06, str(lv))
+        ok('owner sees nearest label + “between” text', (await L.text_content('#moodLabel')) == 'In the mood' and 'Between Maybe and In the mood' in await L.text_content('#moodSub'))
+        dot = await M.evaluate("document.getElementById('pMiniDot').style.left")
+        ok('partner sees the position on a mini track', abs(float(dot.rstrip('%')) - 65) < 2, dot)
+        ok('3.6 + 4 is not a match', not await visible(L, '#matchBanner'))
+        await shot(L, '08b-owner-slider-between.png')
+        await shot(M, '08c-partner-sees-between.png')
+        await drag_to(L, 5)
         await L.wait_for_selector('#matchBanner:not(.hidden)')
         await M.wait_for_selector('#matchBanner:not(.hidden)')
         ok('match banner shows on both phones', True)
@@ -163,7 +177,7 @@ async def main():
         # ---- 4b. Optional end time: partner taps a chip (or ignores it) ----
         await M.wait_for_selector('#untilRow:not(.hidden)')
         chips = await M.eval_on_selector_all('#untilChips .chip', 'els => els.map(e => e.textContent)')
-        ok('after a tap, optional end-time chips appear', chips == ['9 PM', '10 PM', '11 PM', 'No end'], json.dumps(chips))
+        ok('after a tap, optional end-time chips appear', chips == ['9 PM', '10 PM', '11 PM', 'No end', 'Custom…'], json.dumps(chips))
         ok('ignoring chips = no end time', 'until' not in admin_get(f'plCouples/{cid}/people/{muid}')['fields'] or 'nullValue' in admin_get(f'plCouples/{cid}/people/{muid}')['fields']['until'])
         await M.click('#untilChips .chip >> text="9 PM"')
         await M.wait_for_selector('#untilChips .chip.on >> text="9 PM"')
@@ -178,15 +192,34 @@ async def main():
         await L.wait_for_function("document.getElementById('pLabel').textContent==='Not tonight'")
         ok('after 9:00 owner sees “Not tonight”', 'ended at 9:00 PM' in await L.text_content('#pWhen'), await L.text_content('#pWhen'))
         ok('match gone after expiry (both)', not await visible(L, '#matchBanner') and not await visible(M, '#matchBanner'))
-        ok('partner’s own screen shows it ended + Not tonight selected', 'ended at 9:00 PM' in await M.text_content('#youTitle') and await M.locator('.lv.on[data-l="1"]').count() == 1)
+        ok('partner’s own screen shows it ended + Not tonight selected', 'ended at 9:00 PM' in await M.text_content('#youTitle') and (await M.get_attribute('#slider', 'aria-valuenow')) == '1')
         ok('chips hidden once expired', not await visible(M, '#untilRow'))
         await shot(L, '10d-owner-sees-expired-not-tonight.png')
         await shot(M, '10e-partner-expired.png')
-        await M.click('.lv[data-l="4"]')   # new tap clears the end time
+        await M.click('#anchors button[data-l="4"]')   # new tap clears the end time
         await M.wait_for_timeout(500)
         f = admin_get(f'plCouples/{cid}/people/{muid}')['fields']
         ok('new tap clears end time', 'nullValue' in f.get('until', {'nullValue': None}))
         await L.wait_for_function("document.getElementById('pLabel').textContent==='In the mood' && !document.getElementById('pWhen').textContent.includes('until')")
+        # custom good-until: a duration, then a specific time (device clock is pinned at 9:01 PM)
+        await M.click('#chipCustom'); await M.wait_for_selector('#untilSheet:not(.hidden)')
+        await M.click('#usTabDur'); await M.click('#usDur .quick button[data-m="60"]'); await M.click('#usM button:last-child')
+        ok('duration: 1 hr + 15 min → “Until 10:16 PM”', (await M.text_content('#usResult')) == 'Until 10:16 PM', await M.text_content('#usResult'))
+        await shot(M, '10f-partner-custom-duration.png')
+        await M.click('#btnUsSet')
+        await L.wait_for_function("document.getElementById('pWhen').textContent.startsWith('until 10:16 PM')")
+        ok('owner sees “until 10:16 PM” from a custom duration', True)
+        await M.click('#chipCustom'); await M.click('#usTabTime'); await M.fill('#usTimeInput', '23:30'); await M.dispatch_event('#usTimeInput', 'change')
+        ok('time picker → “Until 11:30 PM”', (await M.text_content('#usResult')) == 'Until 11:30 PM')
+        await shot(M, '10g-partner-custom-time.png')
+        await M.click('#btnUsSet')
+        await L.wait_for_function("document.getElementById('pWhen').textContent.startsWith('until 11:30 PM')")
+        ok('owner sees “until 11:30 PM” from a picked time', True)
+        await M.click('#chipCustom'); await M.fill('#usTimeInput', '01:00'); await M.dispatch_event('#usTimeInput', 'change')
+        ok('a time earlier than now means tomorrow', (await M.text_content('#usResult')) == 'Until 1:00 AM tomorrow', await M.text_content('#usResult'))
+        await M.click('#btnUsClose')
+        await M.click('#untilChips .chip >> text="No end"')
+        await L.wait_for_function("!document.getElementById('pWhen').textContent.includes('until')")
 
         # ---- 5. Period: pick a start date (can be earlier) → unavailable for N days ----
         L.on('dialog', lambda d: asyncio.ensure_future(d.accept()))
@@ -196,11 +229,12 @@ async def main():
         await shot(L, '11-owner-period-date-picker.png')
         await L.fill('#psStart', day(2)); await L.click('#btnPsSave')
         await M.wait_for_function("document.getElementById('pLabel').textContent==='Unavailable'")
-        ok('backdated start (2 days ago) → partner sees Unavailable · Period · day 3', (await M.text_content('#pWhen')) == 'Period · day 3', await M.text_content('#pWhen'))
+        ok('period shows the drop icon on partner card', await M.locator('#pEmoji img[src*="drop"]').count() == 1)
+        ok('backdated start (2 days ago) → partner sees “Day 3 of 5 · ends around …”', (await M.text_content('#pWhen')) == f'Day 3 of 5 · ends around {md(-2)}', await M.text_content('#pWhen'))
         await M.wait_for_selector('#matchBanner.hidden', state='attached'); await L.wait_for_selector('#matchBanner.hidden', state='attached')
         ok('match cleared during period (both)', True)
         cb = await L.text_content('#cycleBox')
-        ok('owner sees “Period · day 3 of 5 — unavailable through …”', 'day 3 of 5' in cb and 'through' in cb, cb)
+        ok('owner sees “Period · day 3 of 5 · ends around …”', f'Period · day 3 of 5 · ends around {md(-2)}' in cb, cb)
         ok('owner sees her own unavailable note', await visible(L, '#periodOverlay'))
         await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
         await shot(L, '12-owner-period-on.png', full=True)
@@ -246,7 +280,7 @@ async def main():
         try: await M.wait_for_function("document.getElementById('pLabel').textContent==='Unavailable'", timeout=8000)
         except Exception:
             print('DEBUG priv', json.dumps(admin_get(f'plCouples/{cid}/private/{luid}'))[:900]); print('DEBUG pub', json.dumps(admin_get(f'plCouples/{cid}/people/{luid}').get('fields',{}).get('cyclePub'))[:600]); print('DEBUG M', await M.text_content('#pWhen'), await M.text_content('#pLabel'))
-        ok('with length 6, a start 5 days ago is still day 6 → Unavailable', (await M.text_content('#pWhen')) == 'Period · day 6')
+        ok('with length 6, a start 5 days ago is still day 6 → Unavailable, ends today', (await M.text_content('#pWhen')) == f'Day 6 of 6 · ends around {md(0)}', await M.text_content('#pWhen'))
         await step('periodDays', -1)
         await M.wait_for_function("document.getElementById('pLabel').textContent!=='Unavailable'")
         ok('length back to 5 → period auto-ended for partner', True)
@@ -255,18 +289,20 @@ async def main():
         # ---- 5c. “Starting soon” and fertile window (owner + what partner may see) ----
         set_private(cid, luid, [{'start': day(25)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
         await L.wait_for_function("document.getElementById('cycleBox').textContent.includes('starting soon')")
-        ok('day 26 → owner sees “Period starting soon · expected around …”', 'expected around' in await L.text_content('#cycleBox'))
+        ok('day 26 → owner sees “Period starting soon · expected start – end”', f'Period starting soon · expected {md(-3)} – {md(-7)}' in await L.text_content('#cycleBox'), await L.text_content('#cycleBox'))
         await M.wait_for_function("document.getElementById('pTags').textContent.includes('may start soon')")
-        ok('partner sees a gentle “Period may start soon” tag', True)
+        ok('partner tag shows the expected dates too', (await M.text_content('#pTags')) == f'Period may start soon · {md(-3)} – {md(-7)}', await M.text_content('#pTags'))
         await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
         await shot(L, '14-owner-starting-soon.png', full=True)
         await shot(M, '14b-partner-starting-soon.png')
         set_private(cid, luid, [{'start': day(12)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
         await L.wait_for_function("document.getElementById('cycleBox').textContent.includes('Fertile window')")
         cb = await L.text_content('#cycleBox')
-        ok('day 13 of 28 → owner sees fertile window (estimate) + not-birth-control note', 'through' in cb and 'not birth control' in cb, cb)
+        ok('day 13 of 28 → owner sees “Fertile window · ends …”, no disclaimer', f'Fertile window · ends {md(-3)}' in cb and 'birth control' not in cb and 'stimate' not in cb, cb)
+        ok('owner also sees next period start – end', f'Next period expected {md(-16)} – {md(-20)}' in cb, cb)
         await M.wait_for_function("document.getElementById('pTags').textContent.includes('Fertile window')")
-        ok('partner sees “Fertile window (est.)” when shared (default on)', True)
+        ok('partner sees a “Fertile window” tag (leaf icon) when shared', await M.locator('#pTags img[src*="leaf"]').count() == 1)
+        ok('partner tag shows “Fertile window · through …”', (await M.text_content('#pTags')) == f'Fertile window · through {md(-3)}', await M.text_content('#pTags'))
         await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
         await shot(L, '15-owner-fertile-window.png', full=True)
         await shot(M, '15b-partner-fertile-window.png')
@@ -278,6 +314,16 @@ async def main():
         ok('owner still sees her fertile window', 'Fertile window' in await L.text_content('#cycleBox'))
         await L.click('#btnSettings'); await L.wait_for_selector('#sheet:not(.hidden)')
         await L.click('#setShareFertile'); await L.wait_for_timeout(400); await L.click('#btnCloseSettings')
+        # upcoming fertile window shows its start – end (day 7 of 28)
+        set_private(cid, luid, [{'start': day(6)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
+        await L.wait_for_function(f"document.getElementById('cycleBox').textContent.includes('{md(-3)} – {md(-9)}')")
+        cb = await L.text_content('#cycleBox')
+        ok('upcoming fertile window → “Fertile window · start – end”', f'Fertile window · {md(-3)} – {md(-9)}' in cb, cb)
+        ok('partner sees no tag before the window starts', await M.locator('#pTags.hidden').count() == 1)
+        await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
+        await shot(L, '15c-owner-fertile-upcoming.png', full=True)
+        set_private(cid, luid, [{'start': day(12)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
+        await L.wait_for_function(f"document.getElementById('cycleBox').textContent.includes('ends {md(-3)}')")
 
         # ---- 5d. One-time history import (paste a code in Settings) — made-up dates ----
         imp = [(day(12), 4)] + [(day(12 + 26 * k), 5 if k != 3 else 6) for k in range(1, 6)]
@@ -317,9 +363,26 @@ async def main():
         admin_patch(f'plCouples/{cid}/people/{muid}', {'at': {'timestampValue': old}}, ['at'])
         await L.wait_for_selector('#partnerCard.stale')
         ok('stale status fades + says may be out of date', 'out of date' in await L.text_content('#pWhen'))
+        ok('stale card still shows when it was updated', (await L.text_content('#pUpdated')).startswith('Updated '), await L.text_content('#pUpdated'))
+        d3 = (datetime.datetime.now(ET) - datetime.timedelta(days=3)).replace(hour=20, minute=40, second=0, microsecond=0)
+        admin_patch(f'plCouples/{cid}/people/{muid}', {'at': {'timestampValue': d3.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}}, ['at'])
+        want = f"Updated {d3:%a}, {d3:%b} {d3.day} · 8:40 PM"
+        await L.wait_for_function(f"document.getElementById('pUpdated').textContent === {json.dumps(want)}")
+        ok('days-old status → “Updated Tue, Nov 17 · 8:40 PM” + may be out of date', 'out of date' in await L.text_content('#pWhen'), want)
         await shot(L, '17-owner-sees-stale.png')
+        # Ping to update
+        ok('Ping to update button on the partner card', (await L.text_content('#btnPing')) == 'Ping to update' and not await L.is_disabled('#btnPing'))
+        await L.click('#btnPing')
+        await L.wait_for_function("document.getElementById('btnPing').textContent === 'Pinged ✓'")
+        ok('after ping: “Pinged ✓”, button disabled (cooldown), hint shown', await L.is_disabled('#btnPing') and 'few minutes' in await L.text_content('#pPingMsg'))
+        await L.wait_for_timeout(600)
+        ok('ping request written for the sender (pingAt on own status)', 'timestampValue' in admin_get(f'plCouples/{cid}/people/{luid}')['fields'].get('pingAt', {}))
+        r = await L.evaluate("meRef().set({ pingAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).then(() => 'ok', e => e.code)")
+        ok('a second ping inside 30 min is refused by the rules', r == 'permission-denied', r)
+        await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
+        await shot(L, '17b-lindsay-pinged.png')
         await M.wait_for_timeout(500)
-        ok('partner’s own stale level is un-selected with a refresh prompt', (await M.locator('.lv.on').count()) == 0 and 'Tap to update' in await M.text_content('#youTitle'))
+        ok('partner’s own stale level is un-selected with a refresh prompt', 'unset' in (await M.get_attribute('#slider', 'class')) and 'Slide to update' in await M.text_content('#youTitle'))
 
         # ---- 7. A third person (stranger) cannot see anything ----
         xctx, X = await phone(b, 'stranger')
@@ -360,6 +423,17 @@ async def main():
     sys.exit(1 if fails else 0)
 
 def fmt(c): return c[:4] + '-' + c[4:]
+
+async def drag_to(page, v):
+    b = await page.locator('#slider').bounding_box()
+    y = b['y'] + b['height'] / 2
+    x0 = b['x'] + b['width'] * 0.25; x1 = b['x'] + b['width'] * (v - 1) / 4
+    await page.mouse.move(x0, y); await page.mouse.down()
+    for k in range(1, 7): await page.mouse.move(x0 + (x1 - x0) * k / 6, y)
+    await page.mouse.up(); await page.wait_for_timeout(400)
+
+def md(n):
+    t = datetime.datetime.now(ET) - datetime.timedelta(days=n); return f'{t:%b} {t.day}'
 
 def day(n): return (datetime.datetime.now(ET) - datetime.timedelta(days=n)).strftime('%Y-%m-%d')
 
