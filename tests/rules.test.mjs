@@ -42,6 +42,15 @@ await t('until must be a timestamp', assertFails(setDoc(doc(M, 'plCouples/c1/peo
 await t("partner cannot write owner's people doc", assertFails(setDoc(doc(M, 'plCouples/c1/people/ownerA'), { level: 1 }, { merge: true })));
 await t("partner reads owner's status (incl. period)", assertSucceeds(getDoc(doc(M, 'plCouples/c1/people/ownerA'))));
 await t('owner reads partner status', assertSucceeds(getDoc(doc(L, 'plCouples/c1/people/partnerB'))));
+await t('owner writes private period history', assertSucceeds(setDoc(doc(L, 'plCouples/c1/private/ownerA'), { periodHistory: [{ start: '2026-11-16' }], cycle: { periodDays: 5 } })));
+await t('owner reads own private doc', assertSucceeds(getDoc(doc(L, 'plCouples/c1/private/ownerA'))));
+await t('partner cannot read her private doc', assertFails(getDoc(doc(M, 'plCouples/c1/private/ownerA'))));
+await t('partner cannot write her private doc', assertFails(setDoc(doc(M, 'plCouples/c1/private/ownerA'), { periodHistory: [] })));
+await t('stranger cannot read private doc', assertFails(getDoc(doc(X, 'plCouples/c1/private/ownerA'))));
+await t('private doc rejects unknown fields', assertFails(setDoc(doc(L, 'plCouples/c1/private/ownerA'), { notes: 'x' })));
+await t('private history capped at 60', assertFails(setDoc(doc(L, 'plCouples/c1/private/ownerA'), { periodHistory: Array.from({ length: 61 }, (_, i) => ({ start: '2020-01-01' })) })));
+await t('owner publishes shared cycle view on status', assertSucceeds(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { cyclePub: { cur: { start: '2026-11-16' }, periodDays: 5, soon: null, fertile: null } }, { merge: true })));
+await t('old period field no longer accepted on status', assertFails(setDoc(doc(L, 'plCouples/c1/people/ownerA'), { periodHistory: [] }, { merge: true })));
 await t('stranger cannot read couple', assertFails(getDoc(doc(X, 'plCouples/c1'))));
 await t('stranger cannot read statuses', assertFails(getDoc(doc(X, 'plCouples/c1/people/ownerA'))));
 await t('stranger cannot list statuses', assertFails(getDocs(collection(X, 'plCouples/c1/people'))));

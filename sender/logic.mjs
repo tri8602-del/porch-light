@@ -1,4 +1,6 @@
 // Pure planning logic for Porch Light pushes. No I/O here so it can be unit tested.
+import { createRequire } from 'node:module';
+const CY = createRequire(import.meta.url)('../cycle.js');   // same cycle math as the app
 export const LEVELS = [
   null,
   { label: 'Not tonight', emoji: '😴' },
@@ -33,7 +35,7 @@ export function toMillis(t) {
 // 0 = unavailable (period), 1..5 = level (1 once an 'until' time passes), null = not set or stale.
 export function effectiveLevel(person, isTracker, nowMs) {
   if (!person) return null;
-  if (isTracker && person.period && person.period.active) return 0;
+  if (isTracker && CY.publicNow(person.cyclePub, localParts(nowMs, person.tz).date).active) return 0;
   if (!Number.isInteger(person.level)) return null;
   const at = toMillis(person.at);
   const staleH = Number(person.staleHours) > 0 ? Number(person.staleHours) : DEFAULT_STALE_HOURS;

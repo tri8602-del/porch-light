@@ -3,7 +3,8 @@
   "scripts": {
     "test:rules": "node rules.test.mjs",
     "test:sender": "node sender.test.mjs",
-    "test:ui": "python3 ui_test.py"
+    "test:ui": "python3 ui_test.py",
+    "test:cycle": "node cycle.test.mjs"
   },
   "type": "module",
   "dependencies": {

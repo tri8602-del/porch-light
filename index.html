@@ -4,38 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Porch Light</title>
-<meta name="theme-color" content="#221b33">
+<meta name="theme-color" content="#ecebf2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Porch Light">
 <meta name="robots" content="noindex, nofollow">
 <link rel="manifest" href="manifest.webmanifest" id="manifestLink">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="icon" href="icons/icon-192.png">
+<link rel="icon" type="image/png" href="icons/favicon-64.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
   <!-- Loading -->
   <section id="s-loading" class="screen center">
-    <div class="lamp"></div>
+    <div class="dots big"><i></i><i></i><i></i></div>
   </section>
 
   <!-- iPhone: add to Home Screen first -->
   <section id="s-install" class="screen hidden">
     <div class="pad">
-      <div class="lamp small"></div>
+      <div class="dots"><i></i><i></i><i></i></div>
       <h1>Porch Light</h1>
       <p class="lead">A little light for just the two of you.</p>
-      <div id="installCode" class="codebox hidden">
+      <div id="installCode" class="codebox glass hidden">
         <div class="muted">Your code — you'll type it in a moment</div>
         <div class="bigcode" id="installCodeText">—</div>
       </div>
       <ol class="steps">
-        <li><span class="stepn">1</span><span>Tap the <b>Share</b> button <span class="ios-share" aria-hidden="true"></span> at the bottom of Safari.</span></li>
-        <li><span class="stepn">2</span><span>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</span></li>
-        <li><span class="stepn">3</span><span>Open <b>Porch Light</b> from your Home Screen.</span></li>
+        <li class="glass"><span class="stepn">1</span><span>Tap the <b>Share</b> button <span class="ios-share" aria-hidden="true"></span> at the bottom of Safari.</span></li>
+        <li class="glass"><span class="stepn">2</span><span>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</span></li>
+        <li class="glass"><span class="stepn">3</span><span>Open <b>Porch Light</b> from your Home Screen.</span></li>
       </ol>
       <p class="muted small">This lets the evening check-in reach your phone. Needs iOS 16.4 or newer.</p>
       <button class="link" id="btnSkipInstall">Continue in the browser instead</button>
@@ -45,7 +45,7 @@
   <!-- First run in the app -->
   <section id="s-welcome" class="screen hidden">
     <div class="pad">
-      <div class="lamp small"></div>
+      <div class="dots"><i></i><i></i><i></i></div>
       <h1>Porch Light</h1>
       <p class="lead">Let each other know how you're feeling — one tap, no awkward asking.</p>
       <div class="card">
@@ -72,7 +72,7 @@
     <div class="pad">
       <h1>Invite <span class="pname">your partner</span></h1>
       <p class="lead">Send this link. They add it to their Home Screen and type the code.</p>
-      <div class="codebox"><div class="muted">Code</div><div class="bigcode" id="inviteCode">—</div><div class="muted small" id="inviteExp"></div></div>
+      <div class="codebox glass"><div class="muted">Code</div><div class="bigcode" id="inviteCode">—</div><div class="muted small" id="inviteExp"></div></div>
       <button class="btn primary" id="btnShare">Send invite</button>
       <button class="btn ghost" id="btnInviteDone">Next</button>
     </div>
@@ -81,10 +81,10 @@
   <!-- Turn on notifications -->
   <section id="s-notify" class="screen hidden">
     <div class="pad">
-      <div class="lamp small"></div>
+      <div class="dots"><i></i><i></i><i></i></div>
       <h1>Evening check-in</h1>
       <p class="lead">Once each evening we'll send a quiet nudge to update. If you're both feeling it, you'll each get a heads-up.</p>
-      <div class="preview">
+      <div class="preview glass">
         <div class="pv-icon"></div>
         <div><b>Porch Light</b><div>Evening check-in 🌙 Tap to update.</div></div>
       </div>
@@ -98,13 +98,13 @@
   <!-- Main screen -->
   <section id="s-home" class="screen hidden">
     <header class="top">
-      <div class="brand"><span class="dot"></span>Porch Light</div>
+      <div class="brand"><span class="mini"><i></i><i></i><i></i></span>Porch Light</div>
       <button class="iconbtn" id="btnSettings" aria-label="Settings">⚙︎</button>
     </header>
     <div class="pad home">
       <div id="matchBanner" class="match hidden">💛 You're on the same page</div>
 
-      <div id="partnerCard" class="partner">
+      <div id="partnerCard" class="partner glass">
         <div class="p-name" id="pName">—</div>
         <div class="p-state">
           <div class="p-emoji" id="pEmoji">·</div>
@@ -114,8 +114,11 @@
           </div>
         </div>
         <div class="p-note hidden" id="pNote"></div>
+        <div class="p-tags hidden" id="pTags"></div>
         <div class="p-wait hidden" id="pWait"></div>
       </div>
+
+      <div class="cycle glass hidden" id="cycleBox"></div>
 
       <div class="you">
         <div class="you-h"><span id="youTitle">How are you feeling?</span><span class="saved" id="savedTick"></span></div>
@@ -127,7 +130,6 @@
           <button class="btn small" id="btnNote">Save</button>
         </div>
         <button class="btn period hidden" id="btnPeriod">🌸 Period started</button>
-        <div class="muted small center-t hidden" id="periodInfo"></div>
       </div>
     </div>
   </section>
@@ -152,11 +154,23 @@
       </div>
 
       <div class="set-group hidden" id="setPeriodGroup">
-        <div class="set-t">Period</div>
-        <div class="muted small" id="setPredict"></div>
-        <label class="row"><span>Current period started</span><input type="date" id="setPeriodStart" class="input time"></label>
-        <div class="hist" id="periodHist"></div>
+        <div class="set-t">Period &amp; cycle</div>
         <label class="row"><span>Track my period here</span><input type="checkbox" id="setTracker"></label>
+        <div id="cycleSettings">
+          <div class="row"><span>Unavailable for</span><span class="step" data-k="periodDays" data-min="1" data-max="10"><button>−</button><span></span><button>+</button></span></div>
+          <div class="row"><span>"Starting soon" note from day</span><span class="step" data-k="soonDay" data-min="15" data-max="40"><button>−</button><span></span><button>+</button></span></div>
+          <label class="row"><span>Cycle length: use my average</span><input type="checkbox" id="setCycleAuto"></label>
+          <div class="row" id="cycleManualRow"><span>Cycle length (days)</span><span class="step" data-k="cycleDays" data-min="20" data-max="45"><button>−</button><span></span><button>+</button></span></div>
+          <div class="row"><span>Fertile window starts (days before ovulation)</span><span class="step" data-k="fertileBefore" data-min="0" data-max="8"><button>−</button><span></span><button>+</button></span></div>
+          <div class="row"><span>…and ends (days after)</span><span class="step" data-k="fertileAfter" data-min="0" data-max="4"><button>−</button><span></span><button>+</button></span></div>
+          <label class="row"><span>Show my partner the fertile window</span><input type="checkbox" id="setShareFertile"></label>
+          <label class="row"><span>Show my partner "starting soon"</span><input type="checkbox" id="setShareSoon"></label>
+          <div class="hint" id="setPredict"></div>
+          <div class="set-t">History</div>
+          <div class="hist" id="periodHist"></div>
+          <button class="btn small ghost" id="btnAddPast">+ Add a past period</button>
+          <div class="hint">Estimates use about 14 days before your next expected start. They're estimates, not birth control.</div>
+        </div>
       </div>
 
       <div class="set-group">
@@ -172,12 +186,27 @@
     </div>
   </div>
 
+  <!-- Period date panel -->
+  <div id="periodSheet" class="sheet hidden" role="dialog" aria-modal="true">
+    <div class="sheet-body">
+      <div class="sheet-h"><b id="psTitle">Period started</b><button class="iconbtn" id="btnPsClose" aria-label="Close">✕</button></div>
+      <div class="set-group">
+        <label class="row"><span>Start date</span><input type="date" id="psStart" class="input time"></label>
+        <label class="row" id="psEndRow"><span>End date <span class="muted small">(optional)</span></span><input type="date" id="psEnd" class="input time"></label>
+        <div class="hint" id="psHint"></div>
+      </div>
+      <button class="btn primary" id="btnPsSave">Save</button>
+      <button class="btn ghost danger hidden" id="btnPsDelete">Delete this period</button>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
 </div>
 <script src="config.js"></script>
 <script src="vendor/firebase/firebase-app-compat.js"></script>
 <script src="vendor/firebase/firebase-auth-compat.js"></script>
 <script src="vendor/firebase/firebase-firestore-compat.js"></script>
+<script src="cycle.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

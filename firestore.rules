@@ -55,12 +55,22 @@ service cloud.firestore {
         allow read: if isMember();
         allow create, update: if isMember() && me() == uid
           && request.resource.data.keys().hasOnly(['level','note','at','checkinOn','checkinTime','tz',
-               'period','periodHistory','staleHours','noteAt','until'])
+               'staleHours','noteAt','until','cyclePub'])
+          && (!('cyclePub' in request.resource.data) || request.resource.data.cyclePub == null || request.resource.data.cyclePub is map)
           && (!('until' in request.resource.data) || request.resource.data.until == null || request.resource.data.until is timestamp)
           && (!('level' in request.resource.data) || request.resource.data.level == null
               || (request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5))
           && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 140));
         allow delete: if isMember() && me() == uid;
+      }
+
+      // Her full period history and cycle settings: only she can read or write them.
+      match /private/{uid} {
+        allow read, delete: if isMember() && me() == uid;
+        allow create, update: if isMember() && me() == uid
+          && request.resource.data.keys().hasOnly(['periodHistory','cycle'])
+          && (!('periodHistory' in request.resource.data) || (request.resource.data.periodHistory is list && request.resource.data.periodHistory.size() <= 60))
+          && (!('cycle' in request.resource.data) || request.resource.data.cycle is map);
       }
 
       // Push subscriptions: private to their owner (the sender uses a service account).

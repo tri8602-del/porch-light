@@ -7,3 +7,4 @@ tests/cert.pem
 shots/
 .vapid.json
 .http.log
+icon-src/

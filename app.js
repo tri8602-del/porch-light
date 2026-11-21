@@ -1,6 +1,7 @@
 /* Porch Light — a private two-person status app. */
 'use strict';
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
+const CY = window.PLCycle;
 const CFG = window.PL_CONFIG || {};
 const LEVELS = [null,
   { label: 'Not tonight',   emoji: '😴', c: 'var(--l1)' },
@@ -52,7 +53,7 @@ async function sha(s) { const h = await crypto.subtle.digest('SHA-256', new Text
 // Status rules shared with the sender: 0 = unavailable (period), null = not set / faded.
 function effLevel(p, isTracker) {
   if (!p) return null;
-  if (isTracker && p.period && p.period.active) return 0;
+  if (isTracker && CY.publicNow(p.cyclePub, today()).active) return 0;
   if (!Number.isInteger(p.level)) return null;
   const at = ms(p.at), st = (Number(p.staleHours) > 0 ? Number(p.staleHours) : DEFAULT_STALE) * 3600e3;
   if (at == null || Date.now() - at > st) return null;
@@ -92,6 +93,8 @@ async function ensureUser() {
 }
 const coupleRef = () => db.collection('plCouples').doc(S.cid);
 const meRef = () => coupleRef().collection('people').doc(S.user.uid);
+// Her full period history + cycle settings: readable only by her.
+const privRef = () => coupleRef().collection('private').doc(S.user.uid);
 
 // ---------- invite code from link ----------
 let linkCode = cleanCode(qs.get('j') || '');
@@ -102,8 +105,8 @@ if (linkCode) {
   try {
     const base = new URL('./', location.href).href;
     const m = { name: 'Porch Light', short_name: 'Porch Light', start_url: base + '?j=' + linkCode, scope: base, display: 'standalone',
-      background_color: '#221b33', theme_color: '#221b33',
-      icons: [{ src: base + 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: base + 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }] };
+      background_color: '#ecebf2', theme_color: '#ecebf2',
+      icons: [{ src: base + 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: base + 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }, { src: base + 'icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }] };
     $('manifestLink').href = URL.createObjectURL(new Blob([JSON.stringify(m)], { type: 'application/manifest+json' }));
   } catch (e) {}
 }
@@ -256,6 +259,8 @@ function openCouple(cid) {
     q.docChanges().forEach(ch => { if (ch.type === 'removed') delete S.people[ch.doc.id]; else S.people[ch.doc.id] = ch.doc.data(); });
     render();
   }, () => {}));
+  S.priv = {};
+  S.unsub.push(privRef().onSnapshot(d => { S.priv = d.exists ? d.data() : {}; S.privLoaded = true; render(); }, () => {}));
   // keep my time zone current for the evening check-in
   setTimeout(() => meRef().set({ tz: myTZ() }, { merge: true }).catch(() => {}), 500);
   clearInterval(S.tick); S.tick = setInterval(render, 60000);
@@ -297,7 +302,8 @@ async function setUntil(t) {
 }
 function renderUntil(me, myLv) {
   const row = $('untilRow');
-  const show = Number.isInteger(myLv) && myLv >= 2 && !isExpired(me);
+  const R = roles(); const onPer = R.c.tracker === R.uid && cyc().current;
+  const show = Number.isInteger(myLv) && myLv >= 2 && !isExpired(me) && !onPer;
   row.classList.toggle('hidden', !show);
   if (!show) return;
   const cur = untilMs(me);
@@ -319,33 +325,64 @@ $('btnNote').onclick = async () => {
   catch { toast("Couldn't save — check your connection"); }
 };
 
-$('btnPeriod').onclick = async () => {
-  const me = S.people[S.user.uid] || {};
-  const active = me.period && me.period.active;
-  try {
-    if (!active) {
-      await meRef().set({ period: { active: true, start: today() } }, { merge: true });
-      toast('Marked — you show as unavailable');
-    } else {
-      const hist = Array.isArray(me.periodHistory) ? me.periodHistory.slice() : [];
-      hist.push({ start: me.period.start || today(), end: today() });
-      await meRef().set({ period: { active: false }, periodHistory: hist.slice(-24) }, { merge: true });
-      toast('Period ended');
-    }
-  } catch { toast("Couldn't save — check your connection"); }
-};
-
-function predictNext(me) {
-  const starts = (Array.isArray(me.periodHistory) ? me.periodHistory.map(h => h.start) : []);
-  if (me.period && me.period.active && me.period.start) starts.push(me.period.start);
-  const u = [...new Set(starts)].filter(Boolean).sort();
-  if (!u.length) return null;
-  const gaps = []; for (let i = 1; i < u.length; i++) { const g = dayDiff(u[i - 1], u[i]); if (g >= 18 && g <= 45) gaps.push(g); }
-  const recent = gaps.slice(-6);
-  const avg = recent.length ? Math.round(recent.reduce((a, b) => a + b, 0) / recent.length) : 28;
-  const d = parseDay(u[u.length - 1]); d.setDate(d.getDate() + avg);
-  return { date: d, avg, based: recent.length };
+// ---------- period + cycle (owner side) ----------
+function cyc() { return CY.summary((S.priv || {}).periodHistory, (S.priv || {}).cycle, today()); }
+async function savePriv(patch) {
+  const next = { periodHistory: CY.clean((S.priv || {}).periodHistory), cycle: CY.cfgOf((S.priv || {}).cycle), ...patch };
+  next.periodHistory = CY.clean(next.periodHistory).slice(-48);
+  S.priv = next; render();
+  await privRef().set(next);
+  await publishCycle(true);
 }
+// Share only what she allows (current period, and optionally "starting soon" / fertile dates).
+async function publishCycle(force) {
+  const R = roles(); if (!S.user || !S.privLoaded && !force) return;
+  const me = S.people[R.uid] || {};
+  const pub = R.c.tracker === R.uid ? CY.publicView((S.priv || {}).periodHistory, (S.priv || {}).cycle, today()) : null;
+  if (JSON.stringify(pub) === JSON.stringify(me.cyclePub == null ? null : me.cyclePub)) return;
+  S.people[R.uid] = { ...me, cyclePub: pub };
+  // update() replaces the whole map (a merge would keep stale nested fields like an old end date)
+  await meRef().update({ cyclePub: pub }).catch(() => meRef().set({ cyclePub: pub }, { merge: true }).catch(() => {}));
+}
+let psMode = null, psOrig = null;
+function openPeriodSheet(mode, entry) {
+  psMode = mode; psOrig = entry ? entry.start : null;
+  const t = today(), cfg = cyc().cfg;
+  $('psTitle').textContent = mode === 'start' ? 'Period started' : mode === 'add' ? 'Add a past period' : 'Edit period';
+  $('psStart').max = t; $('psEnd').max = t;
+  $('psStart').value = entry ? entry.start : t;
+  $('psEnd').value = entry && entry.end ? entry.end : '';
+  $('psEndRow').classList.toggle('hidden', mode === 'start');
+  $('btnPsDelete').classList.toggle('hidden', mode !== 'edit');
+  $('psHint').textContent = mode === 'start' ? `Pick an earlier day if you forgot to mark it. You'll show as unavailable for ${cfg.periodDays} days from the start, unless you tap Period ended sooner.`
+    : `Leave the end date blank to count ${cfg.periodDays} days.`;
+  $('periodSheet').classList.remove('hidden');
+}
+$('btnPsClose').onclick = () => $('periodSheet').classList.add('hidden');
+$('periodSheet').addEventListener('click', e => { if (e.target.id === 'periodSheet') $('periodSheet').classList.add('hidden'); });
+$('btnPsSave').onclick = async () => {
+  const st = $('psStart').value, en = $('psEnd').value, t = today();
+  if (!st || st > t) { toast('Pick a start date up to today'); return; }
+  if (en && (en < st || en > t)) { toast('End date must be between the start and today'); return; }
+  let hist = CY.clean((S.priv || {}).periodHistory).filter(e => e.start !== psOrig && e.start !== st);
+  const e = { start: st }; if (en) e.end = en;
+  hist.push(e);
+  try { await savePriv({ periodHistory: hist }); $('periodSheet').classList.add('hidden'); toast(psMode === 'start' ? 'Marked — you show as unavailable' : 'Saved'); if (!$('sheet').classList.contains('hidden')) fillSettings(true); }
+  catch { toast("Couldn't save — check your connection"); }
+};
+$('btnPsDelete').onclick = async () => {
+  if (!confirm('Delete this period?')) return;
+  try { await savePriv({ periodHistory: CY.clean((S.priv || {}).periodHistory).filter(e => e.start !== psOrig) }); $('periodSheet').classList.add('hidden'); toast('Deleted'); fillSettings(true); }
+  catch { toast("Couldn't save"); }
+};
+$('btnPeriod').onclick = async () => {
+  const c = cyc();
+  if (!c.current) { openPeriodSheet('start'); return; }
+  const t = today();
+  const hist = c.history.map(e => e.start === c.current.start ? { start: e.start, end: t, early: true } : e);
+  try { await savePriv({ periodHistory: hist }); toast('Period ended'); } catch { toast("Couldn't save — check your connection"); }
+};
+$('btnAddPast').onclick = () => openPeriodSheet('add');
 
 function render() {
   if (!S.couple || !S.user) return;
@@ -353,6 +390,9 @@ function render() {
   const me = S.people[R.uid] || {};
   const pp = R.partnerUid ? S.people[R.partnerUid] : null;
   const iTrack = R.c.tracker === R.uid, pTracks = R.partnerUid && R.c.tracker === R.partnerUid;
+  const pNow = pTracks && pp ? CY.publicNow(pp.cyclePub, today()) : { active: false };
+  const C = iTrack ? cyc() : null;
+  if (iTrack && S.privLoaded) publishCycle(false);
 
   // Partner card
   $('pName').textContent = R.partnerName;
@@ -364,10 +404,9 @@ function render() {
     const w = $('pWait'); w.classList.remove('hidden');
     w.innerHTML = R.isOwner && R.c.joinCode ? `Their code: <b>${fmtCode(R.c.joinCode)}</b> &nbsp;<button class="btn small" id="btnShareWait">Send invite</button>` : 'Waiting for your partner to join.';
     const b = $('btnShareWait'); if (b) b.onclick = () => shareInvite(R.c.joinCode);
-  } else if (pTracks && pp && pp.period && pp.period.active) {
+  } else if (pNow.active) {
     $('pEmoji').textContent = '🌸'; $('pLabel').textContent = 'Unavailable';
-    const day = pp.period.start ? dayDiff(pp.period.start, today()) + 1 : null;
-    $('pWhen').textContent = 'Period' + (day ? ` · day ${day}` : '');
+    $('pWhen').textContent = `Period · day ${pNow.day}`;
   } else if (!pp || !Number.isInteger(pp.level)) {
     $('pEmoji').textContent = '💭'; $('pLabel').textContent = 'No update yet'; $('pWhen').textContent = '';
   } else {
@@ -382,6 +421,12 @@ function render() {
     if (pp.note && nAt && !st && !exp && Date.now() - nAt < (Number(pp.staleHours) || DEFAULT_STALE) * 3600e3) { $('pNote').textContent = '“' + pp.note + '”'; $('pNote').classList.remove('hidden'); }
   }
 
+  // gentle shared cycle notes on the partner card
+  const tags = [];
+  if (R.partnerUid && pNow.soon) tags.push('<span class="tag soon">🌸 Period may start soon</span>');
+  if (R.partnerUid && pNow.fertile) tags.push('<span class="tag fertile">Fertile window (est.)</span>');
+  $('pTags').innerHTML = tags.join(''); $('pTags').classList.toggle('hidden', !tags.length);
+
   // Match
   const lvMe = effLevel(me, iTrack), lvP = R.partnerUid ? effLevel(pp, pTracks) : null;
   $('matchBanner').classList.toggle('hidden', !(lvMe != null && lvP != null && lvMe >= MATCH_MIN && lvP >= MATCH_MIN));
@@ -392,7 +437,7 @@ function render() {
   document.querySelectorAll('.lv').forEach(b => b.classList.toggle('on', Number(b.dataset.l) === myLv));
   $('youTitle').textContent = myExp ? `“${LEVELS[me.level].label}” ended at ${fmtTime(untilMs(me))}` : myLv ? 'How are you feeling?' : (Number.isInteger(me.level) ? 'Still feeling the same? Tap to update' : 'How are you feeling?');
   renderUntil(me, myLv);
-  const onPeriod = iTrack && me.period && me.period.active;
+  const onPeriod = !!(C && C.current);
   $('levels').classList.toggle('dim', !!onPeriod);
   $('periodOverlay').classList.toggle('hidden', !onPeriod);
 
@@ -403,16 +448,23 @@ function render() {
 
   // Period toggle
   $('btnPeriod').classList.toggle('hidden', !iTrack);
-  $('btnPeriod').classList.toggle('on', !!onPeriod);
+  $('btnPeriod').classList.toggle('on', onPeriod);
   $('btnPeriod').textContent = onPeriod ? '🌸 Period ended' : '🌸 Period started';
-  const pi = $('periodInfo');
-  if (iTrack) {
-    const pr = predictNext(me);
-    if (onPeriod && me.period.start) pi.textContent = `Started ${fmtDay(me.period.start)} · day ${dayDiff(me.period.start, today()) + 1}`;
-    else if (pr) pi.textContent = 'Next expected around ' + pr.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    else pi.textContent = '';
-    pi.classList.toggle('hidden', !pi.textContent);
-  } else pi.classList.add('hidden');
+  const box = $('cycleBox');
+  if (C) {
+    const L = [];
+    if (C.current) L.push(`<div class="ln soon">🌸 <span><b>Period · day ${C.day} of ${C.cfg.periodDays}</b> — unavailable through ${fmtDay(C.endsOn)}</span></div>`);
+    else if (C.soon) L.push(`<div class="ln soon">🌸 <span><b>Period starting soon</b> · expected around ${fmtDay(C.next)}</span></div>`);
+    else if (C.next) L.push(`<div class="ln muted"><span>Next period expected around ${fmtDay(C.next)}</span></div>`);
+    else L.push('<div class="ln muted"><span>Tap <b>Period started</b> to begin tracking.</span></div>');
+    if (C.fertile && !C.current) {
+      const t = today();
+      if (C.inFertile) L.push(`<div class="ln fert">◌ <span><b>Fertile window</b> (estimate) · through ${fmtDay(C.fertile.to)}</span></div>`);
+      else if (t < C.fertile.from) L.push(`<div class="ln fert">◌ <span>Fertile window (estimate) · ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}</span></div>`);
+      if (C.inFertile || t < C.fertile.from) L.push('<div class="fine">Estimates only — not birth control.</div>');
+    }
+    box.innerHTML = L.join(''); box.classList.remove('hidden');
+  } else box.classList.add('hidden');
 
   // flip an "until" status to Not tonight right when its time passes
   const next = [untilMs(me), pp ? untilMs(pp) : null].filter(t => t && t > Date.now()).sort((a, b) => a - b)[0];
@@ -437,12 +489,24 @@ function fillSettings(all = true) {
   const iTrack = R.c.tracker === R.uid;
   // Period section only for the person who tracks (or the owner, who can turn it on)
   $('setPeriodGroup').classList.toggle('hidden', !(iTrack || R.isOwner));
-  $('setPeriodStart').closest('.row').classList.toggle('hidden', !(iTrack && me.period && me.period.active));
-  if (iTrack && me.period && me.period.active && document.activeElement !== $('setPeriodStart')) $('setPeriodStart').value = me.period.start || today();
-  const pr = iTrack ? predictNext(me) : null;
-  $('setPredict').textContent = pr ? `Next expected around ${pr.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} (${pr.based ? 'your ' + pr.avg + '-day average' : 'assuming 28 days'})` : '';
-  const hist = iTrack && Array.isArray(me.periodHistory) ? me.periodHistory.slice().sort((a, b) => String(b.start).localeCompare(String(a.start))) : [];
-  $('periodHist').innerHTML = hist.length ? hist.slice(0, 8).map(h => `<div><span>${fmtDay(h.start)} – ${fmtDay(h.end)}</span><span>${dayDiff(h.start, h.end) + 1} days</span></div>`).join('') : (iTrack ? '<div><span>No history yet</span></div>' : '');
+  $('cycleSettings').classList.toggle('hidden', !iTrack);
+  if (iTrack) {
+    const C = cyc(), cfg = C.cfg;
+    document.querySelectorAll('#cycleSettings .step').forEach(el => { el.querySelector('span').textContent = cfg[el.dataset.k]; });
+    $('setCycleAuto').checked = cfg.cycleAuto;
+    $('cycleManualRow').classList.toggle('hidden', cfg.cycleAuto);
+    $('setShareFertile').checked = cfg.shareFertile; $('setShareSoon').checked = cfg.shareSoon;
+    const bits = [];
+    if (C.next) bits.push(`Next period expected around ${fmtDay(C.next)} (${C.cycleAvg ? 'your ' + C.cycleLen + '-day average' : C.cycleLen + '-day cycle'}).`);
+    if (C.fertile) bits.push(`Fertile window est. ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}.`);
+    $('setPredict').textContent = bits.join(' ');
+    const hist = C.history.slice().reverse();
+    $('periodHist').innerHTML = hist.length ? hist.slice(0, 12).map(h => {
+      const end = CY.effEnd(h, cfg), n = CY.diff(h.start, end) + 1;
+      return `<div class="h" data-s="${h.start}"><span>${fmtDay(h.start)} – ${fmtDay(end)}${h.end ? '' : ' <span class="muted small">(auto)</span>'}</span><span>${n} day${n > 1 ? 's' : ''} ›</span></div>`;
+    }).join('') : '<div class="hint">No periods yet.</div>';
+    $('periodHist').querySelectorAll('.h').forEach(el => el.onclick = () => openPeriodSheet('edit', C.history.find(e => e.start === el.dataset.s)));
+  }
   $('ownerTools').classList.toggle('hidden', !R.isOwner);
 }
 $('btnSettings').onclick = () => { fillSettings(true); $('sheet').classList.remove('hidden'); };
@@ -453,8 +517,19 @@ $('setCheckinOn').onchange = e => saveMe({ checkinOn: e.target.checked });
 $('setCheckinTime').onchange = e => { if (/^\d{2}:\d{2}$/.test(e.target.value)) saveMe({ checkinTime: e.target.value, tz: myTZ() }); };
 $('setStale').onchange = e => saveMe({ staleHours: Number(e.target.value) });
 $('setShowNote').onchange = e => { localStorage.setItem('pl_showNote', e.target.checked ? '1' : '0'); render(); };
-$('setPeriodStart').onchange = e => { const me = S.people[S.user.uid] || {}; if (e.target.value && e.target.value <= today()) saveMe({ period: { ...(me.period || {}), active: true, start: e.target.value } }); };
-$('setTracker').onchange = e => coupleRef().update({ tracker: e.target.checked ? S.user.uid : null }).then(() => toast('Saved'), () => toast("Couldn't save"));
+$('setTracker').onchange = async e => {
+  try { await coupleRef().update({ tracker: e.target.checked ? S.user.uid : null }); S.couple.tracker = e.target.checked ? S.user.uid : null; await publishCycle(true); toast('Saved'); fillSettings(false); render(); }
+  catch { toast("Couldn't save"); }
+};
+const saveCycle = patch => savePriv({ cycle: { ...CY.cfgOf((S.priv || {}).cycle), ...patch } }).then(() => { fillSettings(true); toast('Saved'); }, () => toast("Couldn't save"));
+document.querySelectorAll('#cycleSettings .step').forEach(el => {
+  const [minus, , plus] = el.children;
+  const bump = d => { const cfg = CY.cfgOf((S.priv || {}).cycle), k = el.dataset.k; const v = Math.min(+el.dataset.max, Math.max(+el.dataset.min, cfg[k] + d)); if (v !== cfg[k]) saveCycle({ [k]: v }); };
+  minus.onclick = () => bump(-1); plus.onclick = () => bump(1);
+});
+$('setCycleAuto').onchange = e => saveCycle({ cycleAuto: e.target.checked });
+$('setShareFertile').onchange = e => saveCycle({ shareFertile: e.target.checked });
+$('setShareSoon').onchange = e => saveCycle({ shareSoon: e.target.checked });
 function saveNames() {
   const R = roles();
   const mine = $('setMyName').value.trim().slice(0, 24), theirs = $('setPartnerName').value.trim().slice(0, 24);

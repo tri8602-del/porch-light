@@ -7,7 +7,8 @@ A tiny private app for two people. Each of you taps one of five buttons to say h
 - **Optional end time.** After a tap, a small row of chips appears: the next three whole hours and *No end*. Ignoring it means no end time. When the chosen time passes, the status counts as *Not tonight*, both on screen ("“In the mood” ended at 9:00 PM") and in match logic.
 - **Fades when old.** A status older than 8 hours fades and says "may be out of date". You can change the 8 hours in Settings.
 - **Match.** When you're both at *In the mood* or *Come find me*, a banner appears and each of you gets a push. It is sent once per match.
-- **Period tracking (optional, for whoever turns it on).** One tap marks "Period started" or "Period ended". While it's on, you show as *Unavailable · Period · day N*. The app keeps a history and predicts your next start from your average cycle.
+- **Period tracking (optional, for whoever turns it on).** *Period started* opens a date picker. It defaults to today, and earlier dates work if you forgot to mark it. From the start you show as *Unavailable · Period · day N* for 5 days, unless you tap *Period ended* sooner. After that it ends on its own. You can add or edit past periods in Settings.
+- **Cycle notes (her screen).** From day 25 she sees *Period starting soon* with the expected date. She also sees an estimated fertile window: ovulation is taken as about 14 days before the next expected start, and the window runs from 5 days before to 1 day after it. The cycle length is 28 days or her average. These are estimates, not birth control. She can adjust every number in Settings, and she chooses whether her partner sees the *starting soon* and *fertile window* tags (both on by default). Her full history and settings sit in a private document only she can read. Her partner's phone only gets what she shares.
 - **Discreet.** The app name, icon, and push text are neutral. The lock screen only ever shows "Evening check-in 🌙 Tap to update." or "You're on the same page 💛".
 - **Private.** Each of you signs in anonymously on your own phone. Firestore rules limit a couple's data to exactly its two members, and pairing uses a one-time invite code that expires after 7 days. This repo holds no personal data.
 
@@ -18,6 +19,7 @@ A tiny private app for two people. Each of you taps one of five buttons to say h
 | App (PWA: Add to Home Screen) | `index.html`, `app.js`, `style.css`, `sw.js`, `manifest.webmanifest`, served by GitHub Pages |
 | Data | Firestore collections `plCouples/…` and `plInvites/…` |
 | Access rules | `firestore.rules` |
+| Cycle math (shared by app and sender) | `cycle.js` |
 | Push sender (evening check-in + match) | `sender/send.mjs`, run every 5 minutes by `.github/workflows/push.yml` (free, no Cloud Functions or Blaze plan needed) |
 | Firebase project (`porch-light-84ac9`, its own project) / VAPID public key | `config.js` |
 
@@ -46,6 +48,6 @@ GitHub can delay scheduled runs by a few minutes. That means the evening check-i
 ```
 firebase emulators:start --only auth,firestore --project demo-porch   # ports in firebase.json
 python3 -m http.server 8611 --bind 127.0.0.1
-cd tests && npm i && node rules.test.mjs && node sender.test.mjs && python3 ui_test.py
+cd tests && npm i && node cycle.test.mjs && node rules.test.mjs && node sender.test.mjs && python3 ui_test.py
 ```
 In the app, `?emu=1` points it at the emulators.

@@ -23,8 +23,13 @@ const C = { members: ['L', 'M'], tracker: 'L' };
 const fresh = (lvl, ago = 0.5) => ({ level: lvl, at: EVENING - ago * H, checkinOn: true, checkinTime: '19:30', tz: 'America/New_York' });
 
 // ---- logic ----
-ok('period → effective 0 (unavailable)', effectiveLevel({ level: 5, at: EVENING, period: { active: true } }, true, EVENING) === 0);
-ok('period ignored for non-tracker', effectiveLevel({ level: 5, at: EVENING, period: { active: true } }, false, EVENING) === 5);
+ok('period → effective 0 (unavailable)', effectiveLevel({ level: 5, at: EVENING, cyclePub: { cur: { start: '2026-11-19' }, periodDays: 5 } }, true, EVENING) === 0);
+ok('period auto-ends after N days (day 7 of 5 → available)', effectiveLevel({ level: 5, at: EVENING, cyclePub: { cur: { start: '2026-11-14' }, periodDays: 5 } }, true, EVENING) === 5);
+ok('custom length 7 keeps day 7 unavailable', effectiveLevel({ level: 5, at: EVENING, cyclePub: { cur: { start: '2026-11-14' }, periodDays: 7 } }, true, EVENING) === 0);
+ok('ended early today → available', effectiveLevel({ level: 5, at: EVENING, cyclePub: { cur: { start: '2026-11-18', end: '2026-11-20', early: true }, periodDays: 5 } }, true, EVENING) === 5);
+ok('future-dated start not active yet', effectiveLevel({ level: 5, at: EVENING, cyclePub: { cur: { start: '2026-11-22' }, periodDays: 5 } }, true, EVENING) === 5);
+ok('period uses her local date (11:30 PM ET is still the 20th)', effectiveLevel({ level: 5, at: EVENING, tz: 'America/New_York', cyclePub: { cur: { start: '2026-11-16' }, periodDays: 5 } }, true, Date.parse('2026-11-21T04:30:00Z')) === 0);
+ok('period ignored for non-tracker', effectiveLevel({ level: 5, at: EVENING, cyclePub: { cur: { start: '2026-11-19' }, periodDays: 5 } }, false, EVENING) === 5);
 ok('stale after 8h default', effectiveLevel({ level: 5, at: EVENING - 9 * H }, false, EVENING) === null);
 ok('custom staleHours 12 keeps it fresh at 9h', effectiveLevel({ level: 5, at: EVENING - 9 * H, staleHours: 12 }, false, EVENING) === 5);
 let r = plan(C, { L: fresh(5), M: fresh(4) }, {}, NOON);
@@ -36,7 +41,7 @@ let r3 = plan(C, { L: fresh(2), M: fresh(5) }, r2.server, NOON);
 ok('match resets when one drops', r3.server.matchActive === false && r3.pushes.length === 0);
 let r4 = plan(C, { L: fresh(4), M: fresh(5) }, r3.server, NOON);
 ok('new match after reset notifies again', r4.pushes.filter(p => p.type === 'match').length === 2);
-ok('no match when owner on period', plan(C, { L: { ...fresh(5), period: { active: true, start: '2026-11-19' } }, M: fresh(5) }, {}, NOON).pushes.length === 0);
+ok('no match when owner on period', plan(C, { L: { ...fresh(5), cyclePub: { cur: { start: '2026-11-19' }, periodDays: 5 } }, M: fresh(5) }, {}, NOON).pushes.length === 0);
 ok('no match when one is stale', plan(C, { L: fresh(5, 10), M: fresh(5) }, {}, EVENING).pushes.filter(p => p.type === 'match').length === 0);
 ok('no match with 3 (Maybe)', plan(C, { L: fresh(3), M: fresh(5) }, {}, NOON).pushes.length === 0);
 ok('no pushes for a one-person couple', plan({ members: ['L'] }, { L: fresh(5) }, {}, EVENING).pushes.length === 0);
@@ -103,11 +108,11 @@ ok('e2e: server state saved', st.matchActive === true && st.checkin.L === '2026-
 const n = received.length;
 const s2 = await run({ db, sendNotification, now: EVENING + 5 * 60e3 });
 ok('e2e run 2 (5 min later): nothing re-sent', received.length === n && s2.sent === 0, JSON.stringify(s2));
-await ref.collection('people').doc('L').update({ period: { active: true, start: '2026-11-20' } });
+await ref.collection('people').doc('L').update({ cyclePub: { cur: { start: '2026-11-20' }, periodDays: 5 } });
 await run({ db, sendNotification, now: EVENING + 10 * 60e3 });
 ok('e2e: period clears the match state', (await ref.collection('server').doc('state').get()).data().matchActive === false);
 // expiry end to end: rematch, then the until time passes
-await ref.collection('people').doc('L').update({ period: { active: false } });
+await ref.collection('people').doc('L').update({ cyclePub: null });
 await ref.collection('people').doc('M').update({ until: admin.firestore.Timestamp.fromMillis(EVENING + 30 * 60e3) });
 const before = received.length;
 const s3 = await run({ db, sendNotification, now: EVENING + 15 * 60e3 });
