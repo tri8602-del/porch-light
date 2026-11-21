@@ -1,5 +1,5 @@
 rules_version = '2';
-// Porch Light — Firestore rules.
+// Porch Light - Firestore rules.
 // Everything for this app lives under plCouples/ and plInvites/. If you add these blocks to a
 // project that other apps share, paste only the two `match` blocks inside your existing
 // `match /databases/{database}/documents { ... }` and make sure no broad wildcard rule

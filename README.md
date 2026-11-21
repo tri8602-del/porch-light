@@ -18,7 +18,7 @@ A tiny private app for two people. Each of you taps one of five buttons to say h
 | Data | Firestore collections `plCouples/…` and `plInvites/…` |
 | Access rules | `firestore.rules` |
 | Push sender (evening check-in + match) | `sender/send.mjs`, run every 5 minutes by `.github/workflows/push.yml` (free, no Cloud Functions or Blaze plan needed) |
-| Firebase project / VAPID public key | `config.js` |
+| Firebase project (`porch-light-84ac9`, its own project) / VAPID public key | `config.js` |
 
 GitHub can delay scheduled runs by a few minutes. That means the evening check-in can arrive a little after the set time, and a match push can lag the in-app banner by about 5–15 minutes. The banner itself shows instantly when the app is open.
 
