@@ -55,7 +55,8 @@ service cloud.firestore {
         allow read: if isMember();
         allow create, update: if isMember() && me() == uid
           && request.resource.data.keys().hasOnly(['level','note','at','checkinOn','checkinTime','tz',
-               'period','periodHistory','staleHours','noteAt'])
+               'period','periodHistory','staleHours','noteAt','until'])
+          && (!('until' in request.resource.data) || request.resource.data.until == null || request.resource.data.until is timestamp)
           && (!('level' in request.resource.data) || request.resource.data.level == null
               || (request.resource.data.level is int && request.resource.data.level >= 1 && request.resource.data.level <= 5))
           && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 140));

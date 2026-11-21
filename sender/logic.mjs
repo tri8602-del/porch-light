@@ -30,7 +30,7 @@ export function toMillis(t) {
   return null;
 }
 
-// 0 = unavailable (period), 1..5 = level, null = not set or stale.
+// 0 = unavailable (period), 1..5 = level (1 once an 'until' time passes), null = not set or stale.
 export function effectiveLevel(person, isTracker, nowMs) {
   if (!person) return null;
   if (isTracker && person.period && person.period.active) return 0;
@@ -38,6 +38,9 @@ export function effectiveLevel(person, isTracker, nowMs) {
   const at = toMillis(person.at);
   const staleH = Number(person.staleHours) > 0 ? Number(person.staleHours) : DEFAULT_STALE_HOURS;
   if (at == null || nowMs - at > staleH * 3600e3) return null;
+  // Optional expiry ("In the mood until 9:00 PM"): after that it counts as Not tonight.
+  const until = toMillis(person.until);
+  if (until != null && nowMs >= until) return 1;
   return person.level;
 }
 

@@ -4,6 +4,7 @@ A tiny private app for two people. Each of you taps one of five buttons to say h
 
 - **One screen, one tap.** Opening the app, or tapping the evening notification, lands on the main screen. Your partner's status is at the top, and your five buttons are below it. One tap saves.
 - **Five levels:** Not tonight 😴 · Just cuddles 🤗 · Maybe, ask me 🙂 · In the mood 😊 · Come find me 😉.
+- **Optional end time.** After a tap, a small row of chips appears: the next three whole hours and *No end*. Ignoring it means no end time. When the chosen time passes, the status counts as *Not tonight*, both on screen ("“In the mood” ended at 9:00 PM") and in match logic.
 - **Fades when old.** A status older than 8 hours fades and says "may be out of date". You can change the 8 hours in Settings.
 - **Match.** When you're both at *In the mood* or *Come find me*, a banner appears and each of you gets a push. It is sent once per match.
 - **Period tracking (optional, for whoever turns it on).** One tap marks "Period started" or "Period ended". While it's on, you show as *Unavailable · Period · day N*. The app keeps a history and predicts your next start from your average cycle.

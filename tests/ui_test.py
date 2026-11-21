@@ -1,5 +1,8 @@
 """Porch Light two-phone UI test (Playwright + Firebase emulators). Usage: python3 ui_test.py"""
-import asyncio, json, time, urllib.request, os, sys
+import asyncio, json, time, urllib.request, os, sys, datetime
+from zoneinfo import ZoneInfo
+ET = ZoneInfo('America/New_York')
+def et_today(h, m): return datetime.datetime.now(ET).replace(hour=h, minute=m, second=0, microsecond=0)
 from playwright.async_api import async_playwright
 
 BASE = 'http://127.0.0.1:8611/'
@@ -47,7 +50,7 @@ Object.defineProperty(navigator, 'standalone', { get: () => %s });
 })();
 """
 
-async def phone(browser, name, standalone=True):
+async def phone(browser, name, standalone=True, fixed=None):
     ctx = await browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=3, is_mobile=True,
                                     has_touch=True, user_agent=UA, locale='en-US', timezone_id='America/New_York',
                                     service_workers='allow')
@@ -56,6 +59,7 @@ async def phone(browser, name, standalone=True):
         r = await route.fetch(); body = await r.text()
         await route.fulfill(response=r, body=body)
     await ctx.route('**/config.js', cfg)
+    if fixed: await ctx.clock.set_fixed_time(fixed)   # device clock pinned for the 'until' screenshots
     page = await ctx.new_page()
     page.on('pageerror', lambda e: print(f'[{name} pageerror]', e))
     page.name = name
@@ -83,7 +87,7 @@ async def main():
         await sctx.close()
 
         # ---- 1. owner sets up ----
-        lctx, L = await phone(b, 'owner')
+        lctx, L = await phone(b, 'owner', fixed=et_today(19, 35))
         await L.goto(BASE + '?emu=1')
         await L.wait_for_selector('#s-welcome:not(.hidden)')
         await shot(L, '02-welcome.png')
@@ -111,7 +115,7 @@ async def main():
         await shot(L, '06-owner-home-waiting.png')
 
         # ---- 2. partner joins from the link: code pre-filled, one tap ----
-        mctx, M = await phone(b, 'partner')
+        mctx, M = await phone(b, 'partner', fixed=et_today(19, 35))
         await M.goto(BASE + f'?emu=1&j={code}')
         await M.wait_for_selector('#s-welcome:not(.hidden)')
         ok('partner: code pre-filled from link', (await M.input_value('#joinCode')) == fmt(code))
@@ -139,7 +143,7 @@ async def main():
         dt = time.time() - t0
         ok('partner: open → home → one tap saved', True, f'{dt:.1f}s in test browser')
         await shot(M, '08-partner-home-one-tap.png')
-        await L.wait_for_function("document.getElementById('pLabel').textContent==='In the mood'")
+        await L.wait_for_function("document.getElementById('pLabel').textContent==='In the mood' && !document.getElementById('pWhen').textContent.includes('until')")
         ok('owner sees partner’s update live', True)
         ok('no match yet (owner not set)', not await visible(L, '#matchBanner'))
         doc = admin_get(f'plCouples/{cid}/people/{muid}')
@@ -155,6 +159,34 @@ async def main():
         ok('partner sees owner’s note', 'Kids asleep' in await M.text_content('#pNote'))
         await shot(L, '09-owner-home-match.png')
         await shot(M, '10-partner-home-match.png')
+
+        # ---- 4b. Optional end time: partner taps a chip (or ignores it) ----
+        await M.wait_for_selector('#untilRow:not(.hidden)')
+        chips = await M.eval_on_selector_all('#untilChips .chip', 'els => els.map(e => e.textContent)')
+        ok('after a tap, optional end-time chips appear', chips == ['9 PM', '10 PM', '11 PM', 'No end'], json.dumps(chips))
+        ok('ignoring chips = no end time', 'until' not in admin_get(f'plCouples/{cid}/people/{muid}')['fields'] or 'nullValue' in admin_get(f'plCouples/{cid}/people/{muid}')['fields']['until'])
+        await M.click('#untilChips .chip >> text="9 PM"')
+        await M.wait_for_selector('#untilChips .chip.on >> text="9 PM"')
+        await L.wait_for_function("document.getElementById('pLabel').textContent==='In the mood' && document.getElementById('pWhen').textContent.startsWith('until 9:00 PM')")
+        ok('owner sees “In the mood until 9:00 PM”', True)
+        ok('still a match before 9', await visible(L, '#matchBanner') and await visible(M, '#matchBanner'))
+        await M.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
+        await shot(M, '10b-partner-until-9pm-chips.png')
+        await shot(L, '10c-owner-sees-until-9pm.png')
+        # 9:01 PM: status flips to Not tonight on both, match ends
+        for pg in (L, M): await pg.clock.set_fixed_time(et_today(21, 1)); await pg.evaluate('render()')
+        await L.wait_for_function("document.getElementById('pLabel').textContent==='Not tonight'")
+        ok('after 9:00 owner sees “Not tonight”', 'ended at 9:00 PM' in await L.text_content('#pWhen'), await L.text_content('#pWhen'))
+        ok('match gone after expiry (both)', not await visible(L, '#matchBanner') and not await visible(M, '#matchBanner'))
+        ok('partner’s own screen shows it ended + Not tonight selected', 'ended at 9:00 PM' in await M.text_content('#youTitle') and await M.locator('.lv.on[data-l="1"]').count() == 1)
+        ok('chips hidden once expired', not await visible(M, '#untilRow'))
+        await shot(L, '10d-owner-sees-expired-not-tonight.png')
+        await shot(M, '10e-partner-expired.png')
+        await M.click('.lv[data-l="4"]')   # new tap clears the end time
+        await M.wait_for_timeout(500)
+        f = admin_get(f'plCouples/{cid}/people/{muid}')['fields']
+        ok('new tap clears end time', 'nullValue' in f.get('until', {'nullValue': None}))
+        await L.wait_for_function("document.getElementById('pLabel').textContent==='In the mood' && !document.getElementById('pWhen').textContent.includes('until')")
 
         # ---- 5. Period: one tap → unavailable for partner, match gone ----
         await L.click('#btnPeriod')

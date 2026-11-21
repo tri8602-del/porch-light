@@ -53,6 +53,18 @@ const justUpdated = plan(C, { L: fresh(2, 0.2), M: fresh(1, 3) }, {}, EVENING);
 ok('skip check-in if updated in last hour (but mark done)', justUpdated.pushes.map(p => p.uid).join() === 'M' && justUpdated.server.checkin.L === '2026-11-20');
 ok('time zone honored (Chicago 7:30 = later UTC)', plan(C, { L: { ...fresh(1, 3), tz: 'America/Chicago' }, M: { ...fresh(1, 3), checkinOn: false } }, {}, EVENING).pushes.length === 0);
 
+// ---- optional expiry ("until") ----
+const NINE = Date.parse('2026-11-21T02:00:00Z');   // 9:00 PM ET
+ok('until in future keeps level', effectiveLevel({ level: 4, at: EVENING, until: NINE }, false, NINE - 60e3) === 4);
+ok('after until → Not tonight (1)', effectiveLevel({ level: 4, at: EVENING, until: NINE }, false, NINE) === 1);
+ok('until as Firestore timestamp object works', effectiveLevel({ level: 5, at: EVENING, until: { _seconds: NINE / 1000, _nanoseconds: 0 } }, false, NINE + 1) === 1);
+ok('until null = no end', effectiveLevel({ level: 5, at: EVENING, until: null }, false, EVENING + 3 * H) === 5);
+const mU = plan(C, { L: fresh(5), M: { ...fresh(4), until: NINE } }, {}, NINE - 10 * 60e3);
+ok('match before until time', mU.pushes.filter(p => p.type === 'match').length === 2);
+const mU2 = plan(C, { L: fresh(5), M: { ...fresh(4), until: NINE } }, mU.server, NINE + 60e3);
+ok('no match after until; match state resets', mU2.pushes.length === 0 && mU2.server.matchActive === false);
+ok('no fresh match when one already expired', plan(C, { L: fresh(5), M: { ...fresh(5), until: NINE } }, {}, NINE + 5 * 60e3).pushes.filter(p => p.type === 'match').length === 0);
+
 // ---- end to end against emulator ----
 await fetch('http://127.0.0.1:8391/emulator/v1/projects/demo-porch/databases/(default)/documents', { method: 'DELETE' });
 admin.initializeApp({ projectId: 'demo-porch' });
@@ -94,6 +106,14 @@ ok('e2e run 2 (5 min later): nothing re-sent', received.length === n && s2.sent 
 await ref.collection('people').doc('L').update({ period: { active: true, start: '2026-11-20' } });
 await run({ db, sendNotification, now: EVENING + 10 * 60e3 });
 ok('e2e: period clears the match state', (await ref.collection('server').doc('state').get()).data().matchActive === false);
+// expiry end to end: rematch, then the until time passes
+await ref.collection('people').doc('L').update({ period: { active: false } });
+await ref.collection('people').doc('M').update({ until: admin.firestore.Timestamp.fromMillis(EVENING + 30 * 60e3) });
+const before = received.length;
+const s3 = await run({ db, sendNotification, now: EVENING + 15 * 60e3 });
+ok('e2e: match pushed while before until', s3.match === 2 && received.length === before + 2, JSON.stringify(s3));
+const s4 = await run({ db, sendNotification, now: EVENING + 31 * 60e3 });
+ok('e2e: after until → match state cleared, nothing sent', s4.sent === 0 && (await ref.collection('server').doc('state').get()).data().matchActive === false);
 server.close();
 await ref.delete();
 

@@ -36,6 +36,9 @@ await t('partner deletes used invite', assertSucceeds(deleteDoc(doc(M, 'plInvite
 await t('partner reads couple', assertSucceeds(getDoc(doc(M, 'plCouples/c1'))));
 await t('partner finds couple by query', assertSucceeds(getDocs(query(collection(M, 'plCouples'), where('members', 'array-contains', 'partnerB')))));
 await t('partner writes own people doc', assertSucceeds(setDoc(doc(M, 'plCouples/c1/people/partnerB'), { level: 4, at: serverTimestamp() })));
+await t('partner sets an until time (timestamp)', assertSucceeds(setDoc(doc(M, 'plCouples/c1/people/partnerB'), { until: Timestamp.fromMillis(Date.now() + 3600e3) }, { merge: true })));
+await t('partner clears until (null)', assertSucceeds(setDoc(doc(M, 'plCouples/c1/people/partnerB'), { until: null }, { merge: true })));
+await t('until must be a timestamp', assertFails(setDoc(doc(M, 'plCouples/c1/people/partnerB'), { until: '9pm' }, { merge: true })));
 await t("partner cannot write owner's people doc", assertFails(setDoc(doc(M, 'plCouples/c1/people/ownerA'), { level: 1 }, { merge: true })));
 await t("partner reads owner's status (incl. period)", assertSucceeds(getDoc(doc(M, 'plCouples/c1/people/ownerA'))));
 await t('owner reads partner status', assertSucceeds(getDoc(doc(L, 'plCouples/c1/people/partnerB'))));

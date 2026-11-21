@@ -1,5 +1,5 @@
 // Porch Light service worker: offline shell + Web Push.
-const CACHE = 'pl-sw-1.0.0';
+const CACHE = 'pl-sw-1.1.0';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
   'vendor/firebase/firebase-app-compat.js', 'vendor/firebase/firebase-auth-compat.js', 'vendor/firebase/firebase-firestore-compat.js'];

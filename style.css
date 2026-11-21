@@ -96,3 +96,9 @@ h1{font-size:28px;margin:6px 0 6px;font-weight:700;letter-spacing:-.01em}
 .hist div{display:flex;justify-content:space-between;padding:4px 0}
 .owner-only{display:flex;gap:8px;flex-wrap:wrap;padding:10px 0 4px}
 .toast{position:fixed;left:50%;bottom:calc(var(--safe-b) + 24px);transform:translateX(-50%);background:#4a3e6a;color:var(--text);padding:10px 16px;border-radius:12px;font-size:15px;z-index:20;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.until-row{display:flex;align-items:center;gap:8px;margin:10px 2px 0;flex-wrap:wrap}
+.until-l{font-size:14px;color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:inherit;font-size:14px;font-weight:600;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 11px;cursor:pointer}
+.chip.on{color:#3a2610;background:var(--amber);border-color:var(--amber)}
+.p-when.until{color:var(--amber2);font-weight:600}

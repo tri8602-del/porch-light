@@ -1,6 +1,6 @@
 /* Porch Light — a private two-person status app. */
 'use strict';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const CFG = window.PL_CONFIG || {};
 const LEVELS = [null,
   { label: 'Not tonight',   emoji: '😴', c: 'var(--l1)' },
@@ -56,7 +56,19 @@ function effLevel(p, isTracker) {
   if (!Number.isInteger(p.level)) return null;
   const at = ms(p.at), st = (Number(p.staleHours) > 0 ? Number(p.staleHours) : DEFAULT_STALE) * 3600e3;
   if (at == null || Date.now() - at > st) return null;
+  if (isExpired(p)) return 1;
   return p.level;
+}
+// Optional expiry: "In the mood until 9:00 PM", then it counts as Not tonight.
+function untilMs(p) { return p ? ms(p.until) : null; }
+function isExpired(p) { const u = untilMs(p); return u != null && Date.now() >= u; }
+function fmtTime(t) { return new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
+function untilOptions(now = Date.now()) {
+  // the next three whole hours at least 30 minutes away
+  const d = new Date(now); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1);
+  if (d.getTime() - now < 30 * 60e3) d.setHours(d.getHours() + 1);
+  const out = []; for (let i = 0; i < 3; i++) { out.push(d.getTime()); d.setHours(d.getHours() + 1); }
+  return out;
 }
 function isStale(p) {
   if (!p || !Number.isInteger(p.level)) return false;
@@ -271,10 +283,33 @@ buildLevels();
 
 async function setLevel(i) {
   if (!S.cid) return;
-  const mine = S.people[S.user.uid] = { ...(S.people[S.user.uid] || {}), level: i, at: Date.now() };
+  const mine = S.people[S.user.uid] = { ...(S.people[S.user.uid] || {}), level: i, at: Date.now(), until: null };
   render(); flashSaved();
-  try { await meRef().set({ level: i, at: FV().serverTimestamp() }, { merge: true }); }
+  try { await meRef().set({ level: i, at: FV().serverTimestamp(), until: null }, { merge: true }); }
   catch (e) { toast("Couldn't save — check your connection"); }
+}
+async function setUntil(t) {
+  if (!S.cid) return;
+  S.people[S.user.uid] = { ...(S.people[S.user.uid] || {}), until: t };
+  render();
+  try { await meRef().set({ until: t ? firebase.firestore.Timestamp.fromMillis(t) : null }, { merge: true }); toast(t ? 'Until ' + fmtTime(t) : 'No end time'); }
+  catch (e) { toast("Couldn't save — check your connection"); }
+}
+function renderUntil(me, myLv) {
+  const row = $('untilRow');
+  const show = Number.isInteger(myLv) && myLv >= 2 && !isExpired(me);
+  row.classList.toggle('hidden', !show);
+  if (!show) return;
+  const cur = untilMs(me);
+  const opts = untilOptions();
+  if (cur && !opts.includes(cur)) opts.unshift(cur);
+  const box = $('untilChips'); box.innerHTML = '';
+  for (const t of opts.slice(0, 4)) {
+    const b = document.createElement('button'); b.className = 'chip' + (cur === t ? ' on' : ''); b.dataset.t = t;
+    b.textContent = fmtTime(t).replace(':00', ''); b.onclick = () => setUntil(t); box.appendChild(b);
+  }
+  const n = document.createElement('button'); n.className = 'chip' + (!cur ? ' on' : ''); n.dataset.t = '0';
+  n.textContent = 'No end'; n.onclick = () => setUntil(null); box.appendChild(n);
 }
 function flashSaved() { const t = $('savedTick'); t.textContent = '✓ Saved'; clearTimeout(flashSaved._t); flashSaved._t = setTimeout(() => { t.textContent = ''; }, 2500); }
 
@@ -336,13 +371,15 @@ function render() {
   } else if (!pp || !Number.isInteger(pp.level)) {
     $('pEmoji').textContent = '💭'; $('pLabel').textContent = 'No update yet'; $('pWhen').textContent = '';
   } else {
-    const L = LEVELS[pp.level];
+    const exp = isExpired(pp), pu = untilMs(pp);
+    const L = LEVELS[exp ? 1 : pp.level];
     $('pEmoji').textContent = L.emoji; $('pLabel').textContent = L.label;
     const st = isStale(pp);
-    $('pWhen').textContent = ago(ms(pp.at) || Date.now()) + (st ? ' · may be out of date' : '');
+    $('pWhen').textContent = exp ? `“${LEVELS[pp.level].label}” ended at ${fmtTime(pu)}` : (pu && !st ? `until ${fmtTime(pu)} · ` : '') + ago(ms(pp.at) || Date.now()) + (st ? ' · may be out of date' : '');
+    $('pWhen').classList.toggle('until', !!(pu && !exp && !st));
     if (st) card.classList.add('stale');
     const nAt = ms(pp.noteAt);
-    if (pp.note && nAt && !st && Date.now() - nAt < (Number(pp.staleHours) || DEFAULT_STALE) * 3600e3) { $('pNote').textContent = '“' + pp.note + '”'; $('pNote').classList.remove('hidden'); }
+    if (pp.note && nAt && !st && !exp && Date.now() - nAt < (Number(pp.staleHours) || DEFAULT_STALE) * 3600e3) { $('pNote').textContent = '“' + pp.note + '”'; $('pNote').classList.remove('hidden'); }
   }
 
   // Match
@@ -350,9 +387,11 @@ function render() {
   $('matchBanner').classList.toggle('hidden', !(lvMe != null && lvP != null && lvMe >= MATCH_MIN && lvP >= MATCH_MIN));
 
   // My buttons
-  const myLv = isStale(me) ? null : me.level;
+  const myExp = !isStale(me) && Number.isInteger(me.level) && isExpired(me);
+  const myLv = isStale(me) ? null : (myExp ? 1 : me.level);
   document.querySelectorAll('.lv').forEach(b => b.classList.toggle('on', Number(b.dataset.l) === myLv));
-  $('youTitle').textContent = myLv ? 'How are you feeling?' : (Number.isInteger(me.level) ? 'Still feeling the same? Tap to update' : 'How are you feeling?');
+  $('youTitle').textContent = myExp ? `“${LEVELS[me.level].label}” ended at ${fmtTime(untilMs(me))}` : myLv ? 'How are you feeling?' : (Number.isInteger(me.level) ? 'Still feeling the same? Tap to update' : 'How are you feeling?');
+  renderUntil(me, myLv);
   const onPeriod = iTrack && me.period && me.period.active;
   $('levels').classList.toggle('dim', !!onPeriod);
   $('periodOverlay').classList.toggle('hidden', !onPeriod);
@@ -375,6 +414,9 @@ function render() {
     pi.classList.toggle('hidden', !pi.textContent);
   } else pi.classList.add('hidden');
 
+  // flip an "until" status to Not tonight right when its time passes
+  const next = [untilMs(me), pp ? untilMs(pp) : null].filter(t => t && t > Date.now()).sort((a, b) => a - b)[0];
+  clearTimeout(S.untilTimer); if (next) S.untilTimer = setTimeout(render, Math.min(next - Date.now() + 300, 2 ** 31 - 1));
   if (!$('sheet').classList.contains('hidden')) fillSettings(false);
 }
 
