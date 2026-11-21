@@ -536,7 +536,7 @@ function render() {
     const b = $('btnShareWait'); if (b) b.onclick = () => shareInvite(R.c.joinCode);
   } else if (pNow.active) {
     $('pEmoji').innerHTML = `<img src="${iconSrc('drop')}" alt="">`; $('pLabel').textContent = 'Unavailable';
-    $('pWhen').textContent = `Period · day ${pNow.day}`;
+    $('pWhen').textContent = `Day ${pNow.day} of ${pNow.length} · ends around ${fmtDay(pNow.endsOn)}`;
   } else if (!pp || !isLv(pp.level)) {
     $('pEmoji').textContent = '💭'; $('pLabel').textContent = 'No update yet'; $('pWhen').textContent = '';
   } else {
@@ -554,8 +554,8 @@ function render() {
 
   // gentle shared cycle notes on the partner card
   const tags = [];
-  if (R.partnerUid && pNow.soon) tags.push(`<span class="tag soon">${ICON('drop')}Period may start soon</span>`);
-  if (R.partnerUid && pNow.fertile) tags.push(`<span class="tag fertile">${ICON('leaf')}Fertile window</span>`);
+  if (R.partnerUid && pNow.soon) tags.push(`<span class="tag soon">${ICON('drop')}Period may start soon${pNow.soonStart ? ` · ${fmtDay(pNow.soonStart)} – ${fmtDay(pNow.soonEnd)}` : ''}</span>`);
+  if (R.partnerUid && pNow.fertile) tags.push(`<span class="tag fertile">${ICON('leaf')}Fertile window · through ${fmtDay(pNow.fertileTo)}</span>`);
   $('pTags').innerHTML = tags.join(''); $('pTags').classList.toggle('hidden', !tags.length);
 
   // Match
@@ -584,13 +584,13 @@ function render() {
   const box = $('cycleBox');
   if (C) {
     const L = [];
-    if (C.current) L.push(`<div class="ln soon">${ICON('drop')} <span><b>Period · day ${C.day} of ${C.cfg.periodDays}</b> — unavailable through ${fmtDay(C.endsOn)}</span></div>`);
-    else if (C.soon) L.push(`<div class="ln soon">${ICON('drop')} <span><b>Period starting soon</b> · expected around ${fmtDay(C.next)}</span></div>`);
-    else if (C.next) L.push(`<div class="ln muted"><span>Next period expected around ${fmtDay(C.next)}</span></div>`);
+    if (C.current) L.push(`<div class="ln soon">${ICON('drop')} <span><b>Period · day ${C.day} of ${CY.diff(C.current.start, C.endsOn) + 1}</b> · ends around ${fmtDay(C.endsOn)}</span></div>`);
+    else if (C.soon) L.push(`<div class="ln soon">${ICON('drop')} <span><b>Period starting soon</b> · expected ${fmtDay(C.next)} – ${fmtDay(C.nextEnd)}</span></div>`);
+    else if (C.next) L.push(`<div class="ln muted"><span>Next period expected ${fmtDay(C.next)} – ${fmtDay(C.nextEnd)}</span></div>`);
     else L.push('<div class="ln muted"><span>Tap <b>Period started</b> to begin tracking.</span></div>');
     if (C.fertile && !C.current) {
       const t = today();
-      if (C.inFertile) L.push(`<div class="ln fert">${ICON('leaf')} <span><b>Fertile window</b> · through ${fmtDay(C.fertile.to)}</span></div>`);
+      if (C.inFertile) L.push(`<div class="ln fert">${ICON('leaf')} <span><b>Fertile window</b> · ends ${fmtDay(C.fertile.to)}</span></div>`);
       else if (t < C.fertile.from) L.push(`<div class="ln fert">${ICON('leaf')} <span>Fertile window · ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}</span></div>`);
     }
     box.innerHTML = L.join(''); box.classList.remove('hidden');
@@ -629,8 +629,8 @@ function fillSettings(all = true) {
     $('cycleManualRow').classList.toggle('hidden', cfg.cycleAuto);
     $('setShareFertile').checked = cfg.shareFertile; $('setShareSoon').checked = cfg.shareSoon;
     const bits = [];
-    if (C.next) bits.push(`Next period expected around ${fmtDay(C.next)} (${C.cycleAvg ? 'your ' + C.cycleLen + '-day average' : C.cycleLen + '-day cycle'}).`);
-    if (C.fertile) bits.push(`Fertile window est. ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}.`);
+    if (C.next) bits.push(`Next period expected ${fmtDay(C.next)} – ${fmtDay(C.nextEnd)} (${C.cycleAvg ? 'your ' + C.cycleLen + '-day average' : C.cycleLen + '-day cycle'}).`);
+    if (C.fertile) bits.push(`Fertile window ${fmtDay(C.fertile.from)} – ${fmtDay(C.fertile.to)}.`);
     $('setPredict').textContent = bits.join(' ');
     const hist = C.history.slice().reverse();
     $('periodHist').innerHTML = hist.length ? hist.slice(0, 12).map(h => {

@@ -227,11 +227,11 @@ async def main():
         await L.fill('#psStart', day(2)); await L.click('#btnPsSave')
         await M.wait_for_function("document.getElementById('pLabel').textContent==='Unavailable'")
         ok('period shows the drop icon on partner card', await M.locator('#pEmoji img[src*="drop"]').count() == 1)
-        ok('backdated start (2 days ago) → partner sees Unavailable · Period · day 3', (await M.text_content('#pWhen')) == 'Period · day 3', await M.text_content('#pWhen'))
+        ok('backdated start (2 days ago) → partner sees “Day 3 of 5 · ends around …”', (await M.text_content('#pWhen')) == f'Day 3 of 5 · ends around {md(-2)}', await M.text_content('#pWhen'))
         await M.wait_for_selector('#matchBanner.hidden', state='attached'); await L.wait_for_selector('#matchBanner.hidden', state='attached')
         ok('match cleared during period (both)', True)
         cb = await L.text_content('#cycleBox')
-        ok('owner sees “Period · day 3 of 5 — unavailable through …”', 'day 3 of 5' in cb and 'through' in cb, cb)
+        ok('owner sees “Period · day 3 of 5 · ends around …”', f'Period · day 3 of 5 · ends around {md(-2)}' in cb, cb)
         ok('owner sees her own unavailable note', await visible(L, '#periodOverlay'))
         await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
         await shot(L, '12-owner-period-on.png', full=True)
@@ -277,7 +277,7 @@ async def main():
         try: await M.wait_for_function("document.getElementById('pLabel').textContent==='Unavailable'", timeout=8000)
         except Exception:
             print('DEBUG priv', json.dumps(admin_get(f'plCouples/{cid}/private/{luid}'))[:900]); print('DEBUG pub', json.dumps(admin_get(f'plCouples/{cid}/people/{luid}').get('fields',{}).get('cyclePub'))[:600]); print('DEBUG M', await M.text_content('#pWhen'), await M.text_content('#pLabel'))
-        ok('with length 6, a start 5 days ago is still day 6 → Unavailable', (await M.text_content('#pWhen')) == 'Period · day 6')
+        ok('with length 6, a start 5 days ago is still day 6 → Unavailable, ends today', (await M.text_content('#pWhen')) == f'Day 6 of 6 · ends around {md(0)}', await M.text_content('#pWhen'))
         await step('periodDays', -1)
         await M.wait_for_function("document.getElementById('pLabel').textContent!=='Unavailable'")
         ok('length back to 5 → period auto-ended for partner', True)
@@ -286,18 +286,20 @@ async def main():
         # ---- 5c. “Starting soon” and fertile window (owner + what partner may see) ----
         set_private(cid, luid, [{'start': day(25)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
         await L.wait_for_function("document.getElementById('cycleBox').textContent.includes('starting soon')")
-        ok('day 26 → owner sees “Period starting soon · expected around …”', 'expected around' in await L.text_content('#cycleBox'))
+        ok('day 26 → owner sees “Period starting soon · expected start – end”', f'Period starting soon · expected {md(-3)} – {md(-7)}' in await L.text_content('#cycleBox'), await L.text_content('#cycleBox'))
         await M.wait_for_function("document.getElementById('pTags').textContent.includes('may start soon')")
-        ok('partner sees a gentle “Period may start soon” tag', True)
+        ok('partner tag shows the expected dates too', (await M.text_content('#pTags')) == f'Period may start soon · {md(-3)} – {md(-7)}', await M.text_content('#pTags'))
         await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
         await shot(L, '14-owner-starting-soon.png', full=True)
         await shot(M, '14b-partner-starting-soon.png')
         set_private(cid, luid, [{'start': day(12)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
         await L.wait_for_function("document.getElementById('cycleBox').textContent.includes('Fertile window')")
         cb = await L.text_content('#cycleBox')
-        ok('day 13 of 28 → owner sees fertile window, no disclaimer', 'Fertile window' in cb and 'through' in cb and 'birth control' not in cb and 'stimate' not in cb, cb)
+        ok('day 13 of 28 → owner sees “Fertile window · ends …”, no disclaimer', f'Fertile window · ends {md(-3)}' in cb and 'birth control' not in cb and 'stimate' not in cb, cb)
+        ok('owner also sees next period start – end', f'Next period expected {md(-16)} – {md(-20)}' in cb, cb)
         await M.wait_for_function("document.getElementById('pTags').textContent.includes('Fertile window')")
         ok('partner sees a “Fertile window” tag (leaf icon) when shared', await M.locator('#pTags img[src*="leaf"]').count() == 1)
+        ok('partner tag shows “Fertile window · through …”', (await M.text_content('#pTags')) == f'Fertile window · through {md(-3)}', await M.text_content('#pTags'))
         await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
         await shot(L, '15-owner-fertile-window.png', full=True)
         await shot(M, '15b-partner-fertile-window.png')
@@ -309,6 +311,16 @@ async def main():
         ok('owner still sees her fertile window', 'Fertile window' in await L.text_content('#cycleBox'))
         await L.click('#btnSettings'); await L.wait_for_selector('#sheet:not(.hidden)')
         await L.click('#setShareFertile'); await L.wait_for_timeout(400); await L.click('#btnCloseSettings')
+        # upcoming fertile window shows its start – end (day 7 of 28)
+        set_private(cid, luid, [{'start': day(6)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
+        await L.wait_for_function(f"document.getElementById('cycleBox').textContent.includes('{md(-3)} – {md(-9)}')")
+        cb = await L.text_content('#cycleBox')
+        ok('upcoming fertile window → “Fertile window · start – end”', f'Fertile window · {md(-3)} – {md(-9)}' in cb, cb)
+        ok('partner sees no tag before the window starts', await M.locator('#pTags.hidden').count() == 1)
+        await L.wait_for_selector('#toast.hidden', state='attached', timeout=4000)
+        await shot(L, '15c-owner-fertile-upcoming.png', full=True)
+        set_private(cid, luid, [{'start': day(12)}], {'periodDays': 5, 'soonDay': 25, 'cycleDays': 28, 'cycleAuto': True, 'fertileBefore': 5, 'fertileAfter': 1, 'shareFertile': True, 'shareSoon': True})
+        await L.wait_for_function(f"document.getElementById('cycleBox').textContent.includes('ends {md(-3)}')")
 
         # ---- 5d. One-time history import (paste a code in Settings) — made-up dates ----
         imp = [(day(12), 4)] + [(day(12 + 26 * k), 5 if k != 3 else 6) for k in range(1, 6)]
@@ -399,6 +411,9 @@ async def drag_to(page, v):
     await page.mouse.move(x0, y); await page.mouse.down()
     for k in range(1, 7): await page.mouse.move(x0 + (x1 - x0) * k / 6, y)
     await page.mouse.up(); await page.wait_for_timeout(400)
+
+def md(n):
+    t = datetime.datetime.now(ET) - datetime.timedelta(days=n); return f'{t:%b} {t.day}'
 
 def day(n): return (datetime.datetime.now(ET) - datetime.timedelta(days=n)).strftime('%Y-%m-%d')
 

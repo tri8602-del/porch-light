@@ -46,10 +46,11 @@
     const current = last && activeEntry(last, today, cfg) ? last : null;
     const cl = cycleLength(h, cfg);
     const out = { cfg, history: h, last, current, day: current ? diff(current.start, today) + 1 : null, endsOn: current ? effEnd(current, cfg) : null,
-      cycleLen: cl.len, cycleAvg: cl.avg, next: null, soon: false, soonFrom: null, fertile: null, inFertile: false, dayOfCycle: null };
+      cycleLen: cl.len, cycleAvg: cl.avg, next: null, nextEnd: null, soon: false, soonFrom: null, fertile: null, inFertile: false, dayOfCycle: null };
     if (last) {
       out.dayOfCycle = diff(last.start, today) + 1;
       out.next = addDays(last.start, cl.len);
+      out.nextEnd = addDays(out.next, cfg.periodDays - 1);   // estimated last day of the next period
       out.soonFrom = addDays(last.start, cfg.soonDay - 1);
       out.soon = !current && today >= out.soonFrom && diff(out.next, today) <= 7;   // until a week late
       // this cycle's estimated window; once it has passed, show the next cycle's
@@ -72,12 +73,17 @@
     };
   }
   function publicNow(pub, today) {
-    if (!pub || typeof pub !== 'object') return { active: false, day: null, soon: false, fertile: false };
+    if (!pub || typeof pub !== 'object') return { active: false, day: null, endsOn: null, length: null, soon: false, soonStart: null, soonEnd: null, fertile: false, fertileTo: null };
     const cfg = cfgOf({ periodDays: pub.periodDays });
     const active = !!pub.cur && activeEntry(pub.cur, today, cfg);
     const soon = !active && !!pub.soon && isDay(pub.soon.from) && today >= pub.soon.from && diff(pub.soon.next, today) <= 7;
     const fertile = !active && !!pub.fertile && isDay(pub.fertile.from) && today >= pub.fertile.from && today <= pub.fertile.to;
-    return { active, day: active ? diff(pub.cur.start, today) + 1 : null, soon, fertile };
+    const endsOn = active ? effEnd(pub.cur, cfg) : null;
+    return {
+      active, day: active ? diff(pub.cur.start, today) + 1 : null, endsOn, length: active ? diff(pub.cur.start, endsOn) + 1 : null,
+      soon, soonStart: soon ? pub.soon.next : null, soonEnd: soon && isDay(pub.soon.next) ? addDays(pub.soon.next, cfg.periodDays - 1) : null,
+      fertile, fertileTo: fertile ? pub.fertile.to : null,
+    };
   }
   // One-time history import code: "PL1:" + entries "YYMMDD.L" (start date, length in days) joined by "-".
   // Also accepts lines like "2026-01-13 5". The code is only ever pasted on her phone; it is not stored anywhere else.
